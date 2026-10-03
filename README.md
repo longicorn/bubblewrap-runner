@@ -13,6 +13,7 @@ bwrun init
 bwrun bash
 bwrun --ro ~/docs/shared -- bash
 bwrun --dry-run -- bash
+bwrun --config ~/.config/bwrun/profiles/agent.json -- bash
 ```
 
 Commands inside the sandbox receive `BWRUN_SANDBOX=1`. Add this at the end of `~/.bashrc` to mark an interactive Bash prompt:
@@ -38,10 +39,35 @@ Project-local home files can be supplied without adding mount entries: put them 
   },
   "env": {
     "pass": ["XXXX_API_KEY"],
-    "set": {"CI": "true"}
+    "deny": [],
+    "set": {"CI": "true", "EDITOR": "vim"}
   }
 }
 ```
 
 Install Bubblewrap (`bwrap`) on Linux, then build with `go build ./cmd/bwrun`.
 Host environment variables are inherited by default. Use `env.deny` to filter sensitive variables, `env.pass` to explicitly pass a variable, or `env.set` to set or override a value. To use a tool installed under the home directory, add its binary directory to `mounts.ro` (or `mounts.rw` if it needs to write there).
+
+## Reusable launch profiles
+
+Exporting a token from `.bashrc` makes it available to every command started by that shell. Directory-based shell hooks can narrow the scope, but require configuration in each working tree. For tools that may run from many directories, keep a private bwrun configuration file outside the projects and select it at launch:
+
+```sh
+# ~/.config/bwrun/profiles/agent.json
+{
+  "version": "1",
+  "env": {
+    "pass": [],
+    "deny": ["UNRELATED_TOKEN"],
+    "set": {"EXAMPLE_API_TOKEN": "<token for this tool>"}
+  }
+}
+```
+
+```sh
+alias myagent='bwrun --config ~/.config/bwrun/profiles/agent.json -- myagent'
+```
+
+`--config` loads only the named configuration file; it does not load the usual global or nearest-project configuration, or the nearest project's `.bwrun/sandbox/` entries. Built-in mount rules and command-line flags still apply. A relative `--config` path is resolved from the starting directory; paths inside that file are resolved from the file's directory. The file must exist and cannot be a symbolic link. The selected file is hidden inside the sandbox so the launched command cannot change the policy for a later run.
+
+The host environment is still inherited unless names are listed in `env.deny`. Explicit `env.set` values apply after this filtering: a name listed in both uses the configured value, including an empty string. Across configuration layers, `env.deny` filters host inheritance only; `env.set` values follow configuration-layer precedence. `env.set` values are stored as plain text, so keep files containing secrets private (for example, mode `0600`) and out of version control. `env.deny` filters the initial environment only: an interactive shell can export the same name again from its startup files. Remove sensitive exports from `.bashrc` when using this pattern.

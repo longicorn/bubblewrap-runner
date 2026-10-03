@@ -35,6 +35,43 @@ func TestBuildEnvironmentPrecedenceAndManagedValues(t *testing.T) {
 	}
 }
 
+func TestBuildEnvironmentDenyFiltersInheritanceBeforeSet(t *testing.T) {
+	t.Setenv("BWRUN_ENV_REPLACE", "host-secret")
+	for _, test := range []struct {
+		name   string
+		layers []configLayer
+		want   string
+	}{
+		{"same layer", []configLayer{{rank: 2, config: Config{Env: EnvConfig{
+			Pass: []string{"BWRUN_ENV_REPLACE"},
+			Deny: []string{"BWRUN_ENV_REPLACE"},
+			Set:  map[string]string{"BWRUN_ENV_REPLACE": "replacement"},
+		}}}}, "replacement"},
+		{"empty replacement", []configLayer{{rank: 2, config: Config{Env: EnvConfig{
+			Deny: []string{"BWRUN_ENV_REPLACE"},
+			Set:  map[string]string{"BWRUN_ENV_REPLACE": ""},
+		}}}}, ""},
+		{"layer precedence", []configLayer{
+			{rank: 2, config: Config{Env: EnvConfig{Deny: []string{"BWRUN_ENV_REPLACE"}, Set: map[string]string{"BWRUN_ENV_REPLACE": "project"}}}},
+			{rank: 1, config: Config{Env: EnvConfig{Set: map[string]string{"BWRUN_ENV_REPLACE": "global"}}}},
+		}, "project"},
+		{"deny only filters host", []configLayer{
+			{rank: 1, config: Config{Env: EnvConfig{Set: map[string]string{"BWRUN_ENV_REPLACE": "global"}}}},
+			{rank: 2, config: Config{Env: EnvConfig{Deny: []string{"BWRUN_ENV_REPLACE"}}}},
+		}, "global"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env, err := buildEnvironment(test.layers, "/home/u", "/work", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := lookupEnv(env, "BWRUN_ENV_REPLACE"); !ok || got != test.want {
+				t.Fatalf("replacement = %q, %v; want %q, true", got, ok, test.want)
+			}
+		})
+	}
+}
+
 func TestBuildEnvironmentRejectsInvalidAndManagedOverrides(t *testing.T) {
 	for _, envConfig := range []EnvConfig{
 		{Pass: []string{"BAD=NAME"}},

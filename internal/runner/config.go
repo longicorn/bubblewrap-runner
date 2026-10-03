@@ -73,6 +73,21 @@ func loadConfigLayers(cwd, home string) ([]configLayer, error) {
 	return layers, nil
 }
 
+func loadExplicitConfig(value, cwd, home string) ([]configLayer, string, error) {
+	path, err := expandPath(value, cwd, home)
+	if err != nil {
+		return nil, "", err
+	}
+	cfg, ok, err := readConfig(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if !ok {
+		return nil, "", fmt.Errorf("config %s does not exist", path)
+	}
+	return []configLayer{{config: cfg, base: filepath.Dir(path), rank: 2}}, path, nil
+}
+
 func readConfig(path string) (Config, bool, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {

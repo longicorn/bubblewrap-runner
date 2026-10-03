@@ -98,3 +98,10 @@ func TestLoadConfigLayersUsesNearestProjectAndRanks(t *testing.T) {
 		t.Fatalf("nearest project base = %q", layers[1].base)
 	}
 }
+
+func TestLoadExplicitConfigRequiresExistingFile(t *testing.T) {
+	root := t.TempDir()
+	if _, _, err := loadExplicitConfig("missing.json", root, root); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("missing explicit config error = %v", err)
+	}
+}

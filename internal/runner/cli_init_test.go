@@ -32,7 +32,7 @@ func TestInitializeProjectCreatesTemplateAndPreservesExisting(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Version != "1" || cfg.Network != "allow" || cfg.Mounts.RO == nil || cfg.Mounts.RW == nil || cfg.Mounts.Deny == nil || cfg.Env.Pass == nil || cfg.Env.Set == nil {
+	if cfg.Version != "1" || cfg.Network != "allow" || cfg.Mounts.RO == nil || cfg.Mounts.RW == nil || cfg.Mounts.Deny == nil || cfg.Env.Pass == nil || cfg.Env.Deny == nil || cfg.Env.Set == nil {
 		t.Fatalf("unexpected starter config: %#v", cfg)
 	}
 	if err := os.WriteFile(path, []byte("keep me"), 0o600); err != nil {

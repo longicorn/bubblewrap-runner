@@ -22,6 +22,7 @@ func (s *stringList) Set(value string) error {
 
 type options struct {
 	ro, rw, deny stringList
+	configPath   string
 	dryRun       bool
 	noNet        bool
 }
@@ -43,6 +44,7 @@ func Main(args []string) (int, error) {
 	fs.Var(&opts.ro, "ro", "expose a host path read-only (repeatable)")
 	fs.Var(&opts.rw, "rw", "expose a host path read-write (repeatable)")
 	fs.Var(&opts.deny, "deny", "hide a host path (repeatable)")
+	fs.StringVar(&opts.configPath, "config", "", "use only this configuration file (instead of discovering global and project files)")
 	fs.BoolVar(&opts.dryRun, "dry-run", false, "print the generated bubblewrap command")
 	fs.BoolVar(&opts.noNet, "no-net", false, "disable network access")
 	if err := fs.Parse(args); err != nil {

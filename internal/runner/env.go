@@ -66,7 +66,10 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 		values["PATH"] = sandboxPath
 	}
 	for name := range denied {
-		delete(values, name)
+		// Deny filters inherited values; explicit set values still apply.
+		if _, explicitlySet := ranks[name]; !explicitlySet {
+			delete(values, name)
+		}
 	}
 	values["HOME"] = home
 	values["PWD"] = cwd
