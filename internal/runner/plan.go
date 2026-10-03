@@ -10,11 +10,10 @@ import (
 )
 
 type mount struct {
-	path    string
-	source  string
-	mode    string
-	rank    int
-	missing bool
+	path   string
+	source string
+	mode   string
+	rank   int
 }
 
 type plan struct {
@@ -66,14 +65,15 @@ func buildPlan(opts options, command []string) (plan, error) {
 		target := path
 		info, statErr := os.Stat(path)
 		if statErr != nil {
-			if os.IsNotExist(statErr) && !requireExisting && mode != "deny" {
+			if os.IsNotExist(statErr) && !requireExisting && mode == "deny" {
 				return nil
 			}
-			if !os.IsNotExist(statErr) || requireExisting {
-				return fmt.Errorf("path %s: %w", path, statErr)
+			if os.IsNotExist(statErr) && !requireExisting {
+				return nil
 			}
+			return fmt.Errorf("path %s: %w", path, statErr)
 		}
-		if statErr == nil && (mode == "ro" || mode == "rw") {
+		if mode == "ro" || mode == "rw" {
 			resolved, err = filepath.EvalSymlinks(path)
 			if err != nil {
 				return fmt.Errorf("resolve path %s: %w", path, err)
@@ -87,7 +87,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 					break
 				}
 			}
-		} else if statErr == nil && mode == "deny" {
+		} else if mode == "deny" {
 			if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
 				for _, parent := range selected {
 					if (parent.mode == "ro" || parent.mode == "rw") && parent.path != path && within(parent.path, path) {
@@ -97,7 +97,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 				}
 			}
 		}
-		candidate := mount{path: target, source: resolved, mode: mode, rank: rank, missing: os.IsNotExist(statErr)}
+		candidate := mount{path: target, source: resolved, mode: mode, rank: rank}
 		if old, ok := selected[target]; !ok || rank >= old.rank {
 			selected[target] = candidate
 		}
@@ -143,22 +143,6 @@ func buildPlan(opts options, command []string) (plan, error) {
 				value = "~/.local/state"
 			}
 		}
-		path, err := expandPath(value, home, home)
-		if err != nil {
-			return plan{}, err
-		}
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return plan{}, fmt.Errorf("inspect %s path %s: %w", name, path, err)
-		}
-		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			return plan{}, fmt.Errorf("resolve %s path %s: %w", name, path, err)
-		}
-		if resolved == home || !within(home, resolved) {
-			continue
-		}
 		if err := add(value, home, "rw", -2, false); err != nil {
 			return plan{}, err
 		}
@@ -166,7 +150,6 @@ func buildPlan(opts options, command []string) (plan, error) {
 	}
 	for _, path := range []string{
 		"~/go",
-		"~/.config/autostart", "~/.config/systemd/user",
 		"~/.ssh", "~/.gnupg", "~/.aws", "~/.azure", "~/.kube", "~/.pki/nssdb",
 		"~/.docker/config.json", "~/.config/gcloud", "~/.config/gh/hosts.yml", "~/.config/gh/hosts.yaml",
 		"~/.config/gcloud/application_default_credentials.json", "~/.config/containers/auth.json", "~/.config/goose/credentials.yaml",
@@ -186,7 +169,6 @@ func buildPlan(opts options, command []string) (plan, error) {
 		}
 	}
 	for _, item := range []struct{ name, relative string }{
-		{"XDG_CONFIG_HOME", "autostart"}, {"XDG_CONFIG_HOME", "systemd/user"},
 		{"XDG_CONFIG_HOME", "gcloud"}, {"XDG_CONFIG_HOME", "gh/hosts.yml"},
 		{"XDG_CONFIG_HOME", "gh/hosts.yaml"}, {"XDG_CONFIG_HOME", "containers/auth.json"},
 		{"XDG_CONFIG_HOME", "goose/credentials.yaml"}, {"XDG_CONFIG_HOME", "opencode/auth.json"},
@@ -275,31 +257,9 @@ func buildPlan(opts options, command []string) (plan, error) {
 			return plan{}, err
 		}
 	}
-	// A mount over an absent child of a writable bind would require creating
-	// the mount point on the host. Make only the closest containing mount
-	// read-only; a closer read-only mount already prevents creation.
-	for _, denied := range selected {
-		if denied.mode != "deny" || !denied.missing {
-			continue
-		}
-		closestPath := ""
-		closest := mount{}
-		for path, parent := range selected {
-			if (parent.mode == "ro" || parent.mode == "rw") && path != denied.path && within(path, denied.path) && depth(path) > depth(closestPath) {
-				closestPath, closest = path, parent
-			}
-		}
-		if closest.mode == "rw" {
-			closest.mode = "ro"
-			selected[closestPath] = closest
-		}
-	}
 
 	mounts := make([]mount, 0, len(selected))
 	for _, item := range selected {
-		if item.mode == "deny" && item.missing {
-			continue
-		}
 		mounts = append(mounts, item)
 	}
 	sort.Slice(mounts, func(i, j int) bool {
@@ -309,7 +269,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 		return mounts[i].path < mounts[j].path
 	})
 
-	args := []string{"--die-with-parent", "--unshare-pid", "--unshare-ipc", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", home}
+	args := []string{"--die-with-parent", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", home}
 	if opts.noNet || netDenied {
 		args = append(args, "--unshare-net")
 	}
@@ -384,25 +344,6 @@ func buildPlan(opts options, command []string) (plan, error) {
 				args = append(args, "--ro-bind", "/dev/null", item.path)
 			}
 		}
-	}
-	// Apply these last so even explicit writable rules cannot alter the policy
-	// files used by a later bwrun invocation.
-	for _, name := range []string{".bwrun.json", ".bwrun.local.json", ".bwrun"} {
-		path := filepath.Join(cwd, name)
-		info, err := os.Lstat(path)
-		if os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return plan{}, fmt.Errorf("inspect runner policy path %s: %w", path, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return plan{}, fmt.Errorf("runner policy path %s must not be a symbolic link", path)
-		}
-		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			return plan{}, fmt.Errorf("resolve runner policy path %s: %w", path, err)
-		}
-		args = append(args, "--ro-bind", resolved, resolved)
 	}
 	args = append(args, "--chdir", cwd)
 	sandboxPath := filteredPath(os.Getenv("PATH"), cwd, home, mounts)

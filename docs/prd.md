@@ -38,9 +38,9 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 
 ```
 +-------------------------------------------------------------------+
-| User Layer: Home masked, with defined exceptions                 |
+| User Layer: Deny by default (Hidden)                              |
 |   - Current Working Directory (CWD): READ-WRITE (RW)              |
-|   - Project sandbox entries RW; explicit paths RO / RW / Deny     |
+|   - Specific Whitelisted Paths: RO / RW / Deny                    |
 +-------------------------------------------------------------------+
 | Config Layer: Dotfiles RO; XDG and known caches RW                |
 |   - XDG config/cache/data/state directories                       |
@@ -53,27 +53,24 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 ```
 
 ### 3.1 Base Layer (System Infrastructure)
-* **Scope:** The host root filesystem (`/`) is initially visible at the same paths inside the sandbox, including `/usr`, `/lib`, `/bin`, `/etc`, `/var`, and `/home`. The host home directory is then masked and selectively repopulated as described below.
-* **Policy:**
-  * The root filesystem is read-only by default. `/dev` and `/proc` are provided as sandbox instances. This makes commands such as `ls /` and host-installed tools behave as expected while keeping writes outside permitted paths from changing host files.
-  * **Namespace Isolation:** Bubblewrap creates unshared PID (`--unshare-pid`) and IPC (`--unshare-ipc`) namespaces by default. Sandboxed processes cannot inspect, signal, or communicate via shared memory/semaphores with host processes outside the sandbox. A fresh `/proc` instance is mounted to strictly reflect sandboxed processes.
+* **Scope:** The host root filesystem (`/`) is visible at the same paths inside the sandbox, including `/usr`, `/lib`, `/bin`, `/etc`, `/var`, and `/home`.
+* **Policy:** The root filesystem is read-only by default. `/dev` and `/proc` are provided as sandbox instances. This makes commands such as `ls /` and host-installed tools behave as expected while keeping writes outside permitted paths from changing host files.
 
 ### 3.2 Config Layer (Developer Tools, Dotfiles, & Runtimes)
 * **Scope:** Tool configuration directories, runtime caches, and shared assets (e.g., prompt templates, agent skills, shared memo directories).
 * **Policy:**
   * Existing top-level dotfiles and dotdirectories are mounted Read-Only by default.
-  * Existing XDG config, cache, data, and state directories are mounted Read-Write when they resolve beneath the host home directory. Custom `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` values outside the home directory require an explicit writable mount rule.
+  * XDG config, cache, data, and state directories are mounted Read-Write. Custom `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` values are honored when their paths exist.
   * A built-in catalog assigns write access to known package caches and state paths, including `~/.npm`, `~/.pnpm-store`, `~/.yarn`, Cargo registry/git caches, Go module caches, `~/.gem`, `~/.gradle`, and `~/.m2/repository`. Toolchains and shared runtimes such as `~/.nvm`, `~/.rustup`, `~/.pyenv`, and `~/go` remain Read-Only.
-  * Known credentials, private keys, shell histories, and autostart/persistence vectors (specifically `~/.config/autostart` and `~/.config/systemd/user`) are denied even when their parent dotdirectory is mounted. If a denied path does not exist, its nearest writable containing mount is made Read-Only so the sandbox cannot create the path on the host. Explicit project, user, or CLI rules can override the built-in catalog.
+  * Known credentials, private keys, and shell histories are denied even when their parent dotdirectory is mounted. Explicit project, user, or CLI rules can override the built-in catalog.
 
 ### 3.3 User Layer (User Data & Workspaces)
 * **Scope:** Personal files under `$HOME` (Documents, Downloads, unrelated code repositories, sensitive credentials like `~/.ssh`, `~/.gnupg`, etc.).
 * **Policy:**
-  * **Default:** Mask the host home directory while preserving its path. Existing top-level dotfiles, XDG directories, and known tool caches are then exposed according to the Config Layer rules in Section 3.2; other home contents remain hidden unless a workspace, project sandbox entry, or explicit rule exposes them.
+  * **Default:** Deny (`hidden` / not mounted), implemented by masking the host home directory while preserving its path.
 * **Current Working Directory (CWD):** Automatically mounted as Read-Write (`--bind`) so the command can perform its intended modifications within the project root.
-  * **Runner Self-Protection:** Any configuration files or directories controlling sandbox behavior inside CWD (specifically `.bwrun.json`, `.bwrun.local.json`, and the `.bwrun/` directory) are automatically re-mounted as Read-Only (`--ro-bind`) over the writable CWD. This prevents sandboxed processes from tampering with security policies for subsequent runs.
 * **Explicit Whitelists:** Paths explicitly permitted in configuration can be exposed as Read-Only or Read-Write.
-* A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory, the Config Layer's automatic mounts, project sandbox entries, and paths explicitly allowed by policy; other host home contents remain hidden.
+* A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory and paths explicitly allowed by policy; other host home contents remain hidden.
 
 ### 3.4 Shadow / Injection Mounts (Credential & Config Isolation)
 * Secure sandbox substitution: Instead of exposing host sensitive paths (such as `~/.ssh` or environment variables), users can define isolated project-specific credentials.
@@ -139,7 +136,7 @@ To relieve developers from mapping dozens of non-XDG paths manually, `bwrun` dis
 * **Java / Ruby:** Gradle and Maven repositories plus RubyGems caches writable; credential-bearing settings files denied.
 * **AI agents and developer tools:** dotdirectories such as `~/.gemini`, `~/.goose`, and `~/.claude` read-only, with known credential files denied.
 
-The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.codex/auth.json`, agent login files, `~/.netrc`, package registry credentials, shell histories, and autostart/persistence vectors (`~/.config/autostart`, `~/.config/systemd/user`). Higher-priority explicit rules can allow a path when a project intentionally needs it.
+The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.codex/auth.json`, agent login files, `~/.netrc`, package registry credentials, and shell histories. Higher-priority explicit rules can allow a path when a project intentionally needs it.
 
 ---
 
@@ -195,7 +192,7 @@ bwrun --dry-run -- goose
 ### Phase 1: MVP (Core Runner)
 * CLI with `bwrun [flags] -- <command>` and the convenient `bwrun <command>` form.
 * `bwrun init` to create a project configuration template without overwriting existing settings.
-* Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and home paths are hidden except for automatic Config Layer mounts, project sandbox entries, and explicitly allowed paths.
+* Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and other home paths are hidden unless explicitly allowed.
 * Support for project config (`.bwrun.json`) and user global config (`~/.config/bwrun/config.json`).
 * `--dry-run` flag to inspect generated `bwrap` invocation.
 
