@@ -11,7 +11,7 @@
 ```sh
 bwrun init
 bwrun bash
-bwrun --ro ~/docs/shared -- gemini
+bwrun --ro ~/docs/shared -- bash
 bwrun --dry-run -- bash
 ```
 
@@ -32,12 +32,12 @@ Project-local home files can be supplied without adding mount entries: put them 
   "version": "1",
   "network": "allow",
   "mounts": {
-    "ro": ["~/.config/goose/recipes"],
+    "ro": ["~/.config/my-tool"],
     "rw": ["~/.cache/my-tool"],
     "deny": ["~/.aws"]
   },
   "env": {
-    "pass": ["GOOGLE_API_KEY"],
+    "pass": ["XXXX_API_KEY"],
     "set": {"CI": "true"}
   }
 }
