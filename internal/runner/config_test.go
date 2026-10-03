@@ -50,6 +50,21 @@ func TestReadConfig(t *testing.T) {
 	}
 }
 
+func TestReadConfigRejectsSymbolicLink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.json")
+	if err := os.WriteFile(target, []byte(`{"network":"allow"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".bwrun.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := readConfig(link); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("readConfig error = %v; want symbolic link rejection", err)
+	}
+}
+
 func TestLoadConfigLayersUsesNearestProjectAndRanks(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")

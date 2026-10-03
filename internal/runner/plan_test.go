@@ -73,6 +73,30 @@ func TestBuildPlanRejectsHomeAsWorkspace(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsSymbolicLinkPolicyPath(t *testing.T) {
+	for _, name := range []string{".bwrun.local.json", ".bwrun"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, "home")
+			cwd := filepath.Join(root, "project")
+			for _, dir := range []string{home, cwd} {
+				if err := os.Mkdir(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(home, filepath.Join(cwd, name)); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "absent"))
+			inDirectory(t, cwd)
+			if _, err := buildPlan(options{}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+				t.Fatalf("buildPlan error = %v; want symbolic link rejection", err)
+			}
+		})
+	}
+}
+
 func TestBuildPlanProjectShadowMount(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
