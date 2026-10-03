@@ -143,7 +143,7 @@ The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aw
 ## 5. CLI Interface & User Experience (UX)
 
 ### 5.1 Command Name
-* **Command:** `bwrun` (with optional full alias `bubblewrap-runner`).
+* **Command:** `bwrun`.
 
 ### 5.2 Usage Syntax
 ```bash
