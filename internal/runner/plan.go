@@ -189,6 +189,35 @@ func buildPlan(opts options, command []string) (plan, error) {
 			return plan{}, err
 		}
 	}
+	if sandboxDir, found, err := findProjectSandboxDir(cwd, home); err != nil {
+		return plan{}, err
+	} else if found {
+		resolvedDir, err := filepath.EvalSymlinks(sandboxDir)
+		if err != nil {
+			return plan{}, fmt.Errorf("resolve project sandbox directory %s: %w", sandboxDir, err)
+		}
+		entries, err := os.ReadDir(resolvedDir)
+		if err != nil {
+			return plan{}, fmt.Errorf("read project sandbox directory %s: %w", sandboxDir, err)
+		}
+		for _, entry := range entries {
+			source := filepath.Join(resolvedDir, entry.Name())
+			resolvedSource, err := filepath.EvalSymlinks(source)
+			if err != nil {
+				return plan{}, fmt.Errorf("resolve project sandbox path %s: %w", source, err)
+			}
+			if !within(resolvedDir, resolvedSource) {
+				return plan{}, fmt.Errorf("project sandbox path %s resolves outside %s", source, resolvedDir)
+			}
+			target := filepath.Join(home, entry.Name())
+			for path, previous := range selected {
+				if within(target, path) && previous.rank < 2 {
+					delete(selected, path)
+				}
+			}
+			selected[target] = mount{path: target, source: resolvedSource, mode: "rw", rank: 2}
+		}
+	}
 	for _, layer := range layers {
 		if layer.config.Network == "deny" && layer.rank >= netRank {
 			netDenied = true
@@ -260,7 +289,11 @@ func buildPlan(opts options, command []string) (plan, error) {
 		for parent := filepath.Dir(item.path); within(anchor, parent) && parent != anchor; parent = filepath.Dir(parent) {
 			dirs[parent] = struct{}{}
 		}
-		info, statErr := os.Stat(item.path)
+		statPath := item.path
+		if item.mode == "ro" || item.mode == "rw" {
+			statPath = item.source
+		}
+		info, statErr := os.Stat(statPath)
 		if item.mode == "deny" {
 			if statErr == nil && info.IsDir() {
 				dirs[item.path] = struct{}{}
@@ -320,6 +353,35 @@ func buildPlan(opts options, command []string) (plan, error) {
 	}
 	args = append(args, append([]string{"--"}, command...)...)
 	return plan{args: args, env: env, fileCount: len(orderedFiles)}, nil
+}
+
+// findProjectSandboxDir locates the nearest .bwrun/sandbox directory. A
+// project config marks a project boundary even when it has no sandbox dir.
+func findProjectSandboxDir(cwd, home string) (string, bool, error) {
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		if dir != home {
+			candidate := filepath.Join(dir, ".bwrun", "sandbox")
+			info, err := os.Stat(candidate)
+			if err == nil {
+				if !info.IsDir() {
+					return "", false, fmt.Errorf("project sandbox path %s is not a directory", candidate)
+				}
+				return candidate, true, nil
+			}
+			if !os.IsNotExist(err) {
+				return "", false, fmt.Errorf("inspect project sandbox path %s: %w", candidate, err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, ".bwrun.json")); err == nil {
+				return "", false, nil
+			} else if !os.IsNotExist(err) {
+				return "", false, fmt.Errorf("inspect project config in %s: %w", dir, err)
+			}
+		}
+		parent := filepath.Dir(dir)
+		if dir == home || parent == dir {
+			return "", false, nil
+		}
+	}
 }
 
 func filteredPath(value, cwd, home string, mounts []mount) string {

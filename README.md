@@ -19,6 +19,8 @@ fi
 
 `bwrun init` creates a project `.bwrun.json` template and leaves an existing file untouched. Project settings go in `.bwrun.json`; user settings go in `~/.config/bwrun/config.json`:
 
+Project-local home files can be supplied without adding mount entries: put them under `.bwrun/sandbox/` using their home-relative paths. For example, `.bwrun/sandbox/.ssh` is mounted read-write at `~/.ssh`; any existing entries directly under `.bwrun/sandbox/` are mounted the same way automatically. Explicit project or command-line mount rules can override these defaults.
+
 ```json
 {
   "version": "1",

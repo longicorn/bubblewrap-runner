@@ -74,7 +74,7 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 
 ### 3.4 Shadow / Injection Mounts (Credential & Config Isolation)
 * Secure sandbox substitution: Instead of exposing host sensitive paths (such as `~/.ssh` or environment variables), users can define isolated project-specific credentials.
-* Example: If `.bwrun/sandbox/.ssh` exists in the project or is specified in config, `bwrun` mounts that custom directory onto the container's `~/.ssh`, enabling git over SSH using dedicated project keys while protecting real host SSH keys.
+* Default project overlay: entries directly inside the nearest project `.bwrun/sandbox/` directory are automatically mounted Read-Write into the sandbox home at the same relative paths. For example, `.bwrun/sandbox/.ssh` is mounted at `~/.ssh`, enabling git over SSH with project-specific keys while keeping host keys hidden. Explicit project or CLI mount rules can override the automatic mapping.
 
 ---
 
