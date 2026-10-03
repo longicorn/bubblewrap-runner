@@ -47,6 +47,9 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 		if !ok || denied[name] {
 			continue
 		}
+		if _, overridden := values[name]; overridden {
+			continue
+		}
 		values[name] = value
 	}
 	for name := range pass {
@@ -59,10 +62,8 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 			}
 		}
 	}
-	if sandboxPath != "" {
-		if _, overridden := values["PATH"]; !overridden {
-			values["PATH"] = sandboxPath
-		}
+	if sandboxPath != "" && ranks["PATH"] == 0 {
+		values["PATH"] = sandboxPath
 	}
 	for name := range denied {
 		delete(values, name)
