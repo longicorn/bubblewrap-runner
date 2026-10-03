@@ -27,6 +27,16 @@ type options struct {
 }
 
 func Main(args []string) (int, error) {
+	if len(args) > 0 && args[0] == "init" {
+		if len(args) != 1 {
+			return 2, errors.New("usage: bwrun init")
+		}
+		if err := initializeProject(); err != nil {
+			return 1, err
+		}
+		return 0, nil
+	}
+
 	fs := flag.NewFlagSet("bwrun", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var opts options
@@ -43,7 +53,7 @@ func Main(args []string) (int, error) {
 		command = command[1:]
 	}
 	if len(command) == 0 {
-		return 2, errors.New("usage: bwrun [flags] [--] <command> [args...]")
+		return 2, errors.New("usage: bwrun init | bwrun [flags] [--] <command> [args...]")
 	}
 
 	plan, err := buildPlan(opts, command)

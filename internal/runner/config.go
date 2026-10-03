@@ -20,6 +20,7 @@ type EnvConfig struct {
 }
 
 type Config struct {
+	Schema  string      `json:"$schema,omitempty"`
 	Version string      `json:"version"`
 	Network string      `json:"network"`
 	Mounts  MountConfig `json:"mounts"`

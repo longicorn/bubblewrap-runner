@@ -3,12 +3,13 @@
 `bwrun` starts a command in a Bubblewrap sandbox. The host filesystem remains visible at its normal paths, read-only by default. The current working directory is writable, while other paths under the user's home directory stay hidden unless explicitly allowed.
 
 ```sh
+bwrun init
 bwrun bash
 bwrun --ro ~/docs/shared -- gemini
 bwrun --dry-run -- bash
 ```
 
-Project settings go in `.bwrun.json`; user settings go in `~/.config/bwrun/config.json`:
+`bwrun init` creates a project `.bwrun.json` template and leaves an existing file untouched. Project settings go in `.bwrun.json`; user settings go in `~/.config/bwrun/config.json`:
 
 ```json
 {

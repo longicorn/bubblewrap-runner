@@ -144,9 +144,12 @@ To relieve developers from mapping dozens of non-XDG dotfiles manually, `bwrun` 
 
 ### 5.2 Usage Syntax
 ```bash
+bwrun init
 bwrun [flags] -- <command> [args...]
 # A command may also follow directly, for example: bwrun bash
 ```
+
+`bwrun init` creates a starter `.bwrun.json` in the current directory and never overwrites an existing file. The template starts with empty path and environment rules; developers add only the permissions their project needs.
 
 #### Examples:
 ```bash
@@ -185,6 +188,7 @@ bwrun --dry-run -- goose
 
 ### Phase 1: MVP (Core Runner)
 * CLI with `bwrun [flags] -- <command>` and the convenient `bwrun <command>` form.
+* `bwrun init` to create a project configuration template without overwriting existing settings.
 * Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and other home paths are hidden unless explicitly allowed.
 * Support for project config (`.bwrun.json`) and user global config (`~/.config/bwrun/config.json`).
 * `--dry-run` flag to inspect generated `bwrap` invocation.
