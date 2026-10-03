@@ -233,7 +233,7 @@ Provide explicit configuration to deny or override specific environment variable
 1. **Default Pass-through:** Host environment variables that are set are passed to the sandboxed process.
 2. **Explicit Deny (`env.deny`):** Allow users to intentionally filter out sensitive environment variables (e.g., cloud credentials, deployment tokens) via `.bwrun.json`.
 3. **Explicit Pass (`env.pass`):** Retain the option to name variables for clarity; set host values are already inherited by default.
-4. **Explicit Override (`env.set`):** Allow setting or overriding specific environment variables.
+4. **Explicit Override (`env.set`):** Apply explicit values after filtering inherited host variables with `env.deny`. A name listed in both uses its `env.set` value, including an empty string. Denials from any configuration layer filter host inheritance only; explicit set values follow configuration-layer precedence.
 5. **Mandatory Runtime Variables:** `bwrun` always guarantees essential sandbox environment variables (such as setting `HOME` to the sandbox home path and `BWRUN_SANDBOX=1`).
 
 ### Consequences

@@ -40,7 +40,7 @@ Project-local home files can be supplied without adding mount entries: put them 
   "env": {
     "pass": ["XXXX_API_KEY"],
     "deny": [],
-    "set": {"CI": "true"}
+    "set": {"CI": "true", "EDITOR": "vim"}
   }
 }
 ```
@@ -70,4 +70,4 @@ alias myagent='bwrun --config ~/.config/bwrun/profiles/agent.json -- myagent'
 
 `--config` loads only the named configuration file; it does not load the usual global or nearest-project configuration, or the nearest project's `.bwrun/sandbox/` entries. Built-in mount rules and command-line flags still apply. A relative `--config` path is resolved from the starting directory; paths inside that file are resolved from the file's directory. The file must exist and cannot be a symbolic link. The selected file is hidden inside the sandbox so the launched command cannot change the policy for a later run.
 
-The host environment is still inherited unless names are listed in `env.deny`. `env.set` values are stored as plain text, so keep files containing secrets private (for example, mode `0600`) and out of version control. `env.deny` filters the initial environment only: an interactive shell can export the same name again from its startup files. Remove sensitive exports from `.bashrc` when using this pattern.
+The host environment is still inherited unless names are listed in `env.deny`. Explicit `env.set` values apply after this filtering: a name listed in both uses the configured value, including an empty string. Across configuration layers, `env.deny` filters host inheritance only; `env.set` values follow configuration-layer precedence. `env.set` values are stored as plain text, so keep files containing secrets private (for example, mode `0600`) and out of version control. `env.deny` filters the initial environment only: an interactive shell can export the same name again from its startup files. Remove sensitive exports from `.bashrc` when using this pattern.
