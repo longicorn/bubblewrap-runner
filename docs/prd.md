@@ -54,7 +54,9 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 
 ### 3.1 Base Layer (System Infrastructure)
 * **Scope:** The host root filesystem (`/`) is visible at the same paths inside the sandbox, including `/usr`, `/lib`, `/bin`, `/etc`, `/var`, and `/home`.
-* **Policy:** The root filesystem is read-only by default. `/dev` and `/proc` are provided as sandbox instances. This makes commands such as `ls /` and host-installed tools behave as expected while keeping writes outside permitted paths from changing host files.
+* **Policy:**
+  * The root filesystem is read-only by default. `/dev` and `/proc` are provided as sandbox instances. This makes commands such as `ls /` and host-installed tools behave as expected while keeping writes outside permitted paths from changing host files.
+  * **Namespace Isolation:** Bubblewrap creates unshared PID (`--unshare-pid`) and IPC (`--unshare-ipc`) namespaces by default. Sandboxed processes cannot inspect, signal, or communicate via shared memory/semaphores with host processes outside the sandbox. A fresh `/proc` instance is mounted to strictly reflect sandboxed processes.
 
 ### 3.2 Config Layer (Developer Tools, Dotfiles, & Runtimes)
 * **Scope:** Tool configuration directories, runtime caches, and shared assets (e.g., prompt templates, agent skills, shared memo directories).
@@ -62,13 +64,14 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
   * Existing top-level dotfiles and dotdirectories are mounted Read-Only by default.
   * XDG config, cache, data, and state directories are mounted Read-Write. Custom `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` values are honored when their paths exist.
   * A built-in catalog assigns write access to known package caches and state paths, including `~/.npm`, `~/.pnpm-store`, `~/.yarn`, Cargo registry/git caches, Go module caches, `~/.gem`, `~/.gradle`, and `~/.m2/repository`. Toolchains and shared runtimes such as `~/.nvm`, `~/.rustup`, `~/.pyenv`, and `~/go` remain Read-Only.
-  * Known credentials, private keys, and shell histories are denied even when their parent dotdirectory is mounted. Explicit project, user, or CLI rules can override the built-in catalog.
+  * Known credentials, private keys, shell histories, and autostart/persistence vectors (specifically `~/.config/autostart` and `~/.config/systemd/user`) are denied even when their parent dotdirectory is mounted. Explicit project, user, or CLI rules can override the built-in catalog.
 
 ### 3.3 User Layer (User Data & Workspaces)
 * **Scope:** Personal files under `$HOME` (Documents, Downloads, unrelated code repositories, sensitive credentials like `~/.ssh`, `~/.gnupg`, etc.).
 * **Policy:**
   * **Default:** Deny (`hidden` / not mounted), implemented by masking the host home directory while preserving its path.
 * **Current Working Directory (CWD):** Automatically mounted as Read-Write (`--bind`) so the command can perform its intended modifications within the project root.
+  * **Runner Self-Protection:** Any configuration files or directories controlling sandbox behavior inside CWD (specifically `.bwrun.json`, `.bwrun.local.json`, and the `.bwrun/` directory) are automatically re-mounted as Read-Only (`--ro-bind`) over the writable CWD. This prevents sandboxed processes from tampering with security policies for subsequent runs.
 * **Explicit Whitelists:** Paths explicitly permitted in configuration can be exposed as Read-Only or Read-Write.
 * A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory and paths explicitly allowed by policy; other host home contents remain hidden.
 
@@ -136,7 +139,7 @@ To relieve developers from mapping dozens of non-XDG paths manually, `bwrun` dis
 * **Java / Ruby:** Gradle and Maven repositories plus RubyGems caches writable; credential-bearing settings files denied.
 * **AI agents and developer tools:** dotdirectories such as `~/.gemini`, `~/.goose`, and `~/.claude` read-only, with known credential files denied.
 
-The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.codex/auth.json`, agent login files, `~/.netrc`, package registry credentials, and shell histories. Higher-priority explicit rules can allow a path when a project intentionally needs it.
+The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.codex/auth.json`, agent login files, `~/.netrc`, package registry credentials, shell histories, and autostart/persistence vectors (`~/.config/autostart`, `~/.config/systemd/user`). Higher-priority explicit rules can allow a path when a project intentionally needs it.
 
 ---
 
