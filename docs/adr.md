@@ -13,6 +13,7 @@ This document records the architectural and design decisions made for `bwrun` (b
 - [ADR-0005: Runtime Existence-Checking for Dynamic Mount Construction](#adr-0005-runtime-existence-checking-for-dynamic-mount-construction)
 - [ADR-0006: Child Process Execution with Transparent I/O and Signal Forwarding](#adr-0006-child-process-execution-with-transparent-io-and-signal-forwarding)
 - [ADR-0007: Default Host Network Passthrough with Opt-Out Flag](#adr-0007-default-host-network-passthrough-with-opt-out-flag)
+- [ADR-0008: Default Environment Variable Pass-Through with Explicit Deny/Override](#adr-0008-default-environment-variable-pass-through-with-explicit-denyoverride)
 
 ---
 
@@ -213,3 +214,32 @@ Enable host network access by default (sharing the host network namespace). Prov
 #### Negative
 - An agent could theoretically send data over the network if it gained access to sensitive data (mitigated by strict User Layer filesystem denial).
 - Network filtering/proxying is deferred to Phase 3.
+
+---
+
+## ADR-0008: Default Environment Variable Pass-Through with Explicit Deny/Override
+
+### Status
+Accepted
+
+### Context
+Modern AI agents, developer tools, and language runtimes rely extensively on host environment variables for operation (e.g., LLM API keys such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, runtime path configurations like `NVM_DIR`, `GOPATH`, proxy settings, and locale).
+Filtering environment variables via a strict whitelist by default introduces high configuration friction, breaking the "zero-configuration" developer experience of running `bwrun <command>` seamlessly out of the box.
+
+### Decision
+Inherit all host environment variables by default.
+Provide explicit configuration to deny or override specific environment variables:
+1. **Default Pass-through:** Host environment variables that are set are passed to the sandboxed process.
+2. **Explicit Deny (`env.deny`):** Allow users to intentionally filter out sensitive environment variables (e.g., cloud credentials, deployment tokens) via `.bwrun.json`.
+3. **Explicit Pass (`env.pass`):** Retain the option to name variables for clarity; set host values are already inherited by default.
+4. **Explicit Override (`env.set`):** Allow setting or overriding specific environment variables.
+5. **Mandatory Runtime Variables:** `bwrun` always guarantees essential sandbox environment variables (such as setting `HOME` to the sandbox home path and `BWRUN_SANDBOX=1`).
+
+### Consequences
+#### Positive
+- Zero friction for AI agents and developer tools requiring pre-configured API keys and environment settings.
+- Aligns with the default host network passthrough philosophy (ADR-0007) of prioritizing developer productivity out of the box.
+- Developers maintain control to hide sensitive secrets when needed via `env.deny`.
+
+#### Negative
+- Host secrets stored in environment variables (e.g., accidental export of tokens in a shell session) are visible to the sandboxed process unless explicitly listed in `env.deny`.

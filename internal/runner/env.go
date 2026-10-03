@@ -13,12 +13,8 @@ const sandboxMarkerEnv = "BWRUN_SANDBOX"
 var validEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]string, error) {
-	pass := map[string]bool{
-		"PATH": true, "TERM": true, "LANG": true, "LC_ALL": true,
-		"LC_CTYPE": true, "USER": true, "LOGNAME": true, "SHELL": true,
-		"XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true,
-		"XDG_DATA_HOME": true, "XDG_STATE_HOME": true,
-	}
+	pass := map[string]bool{}
+	denied := map[string]bool{}
 	values := map[string]string{}
 	ranks := map[string]int{}
 	for _, layer := range layers {
@@ -27,6 +23,12 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 				return nil, fmt.Errorf("invalid environment variable name %q", name)
 			}
 			pass[name] = true
+		}
+		for _, name := range layer.config.Env.Deny {
+			if !validEnvName.MatchString(name) {
+				return nil, fmt.Errorf("invalid environment variable name %q", name)
+			}
+			denied[name] = true
 		}
 		for name, value := range layer.config.Env.Set {
 			if !validEnvName.MatchString(name) {
@@ -40,22 +42,30 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 			}
 		}
 	}
+	for _, entry := range os.Environ() {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || denied[name] {
+			continue
+		}
+		values[name] = value
+	}
 	for name := range pass {
-		if name == "HOME" || name == "PWD" {
+		if denied[name] {
 			continue
 		}
-		if name == "PATH" {
-			if _, overridden := values[name]; !overridden && sandboxPath != "" {
-				values[name] = sandboxPath
+		if _, exists := values[name]; !exists {
+			if value, ok := os.LookupEnv(name); ok {
+				values[name] = value
 			}
-			continue
 		}
-		if _, overridden := values[name]; overridden {
-			continue
+	}
+	if sandboxPath != "" {
+		if _, overridden := values["PATH"]; !overridden {
+			values["PATH"] = sandboxPath
 		}
-		if value, ok := os.LookupEnv(name); ok {
-			values[name] = value
-		}
+	}
+	for name := range denied {
+		delete(values, name)
 	}
 	values["HOME"] = home
 	values["PWD"] = cwd
