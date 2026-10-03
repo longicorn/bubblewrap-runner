@@ -265,6 +265,7 @@ Implement three defense-in-depth isolation controls:
    - Mount an isolated, private `/proc` inside the sandbox so only processes within the sandbox are visible and controllable.
 2. **Self-Protection of Runner Configurations in CWD:**
    - After mounting CWD as Read-Write (`--bind`), automatically re-mount any existing `.bwrun.json`, `.bwrun.local.json`, and `.bwrun/` directory as Read-Only (`--ro-bind`).
+   - Reject symbolic links at these policy paths, including project or global configuration files, because protecting a link target does not protect the link itself from replacement.
 3. **Automatic Denial of Autostart / Persistence Paths:**
    - Include `~/.config/autostart` and `~/.config/systemd/user` in the built-in deny list. Even though parent `~/.config` may be writable, these critical persistence vector paths are masked/denied inside the sandbox.
 

@@ -74,6 +74,16 @@ func loadConfigLayers(cwd, home string) ([]configLayer, error) {
 }
 
 func readConfig(path string) (Config, bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return Config{}, false, nil
+	}
+	if err != nil {
+		return Config{}, false, fmt.Errorf("inspect config %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return Config{}, false, fmt.Errorf("config %s must not be a symbolic link", path)
+	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return Config{}, false, nil

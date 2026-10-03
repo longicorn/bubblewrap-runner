@@ -351,10 +351,14 @@ func buildPlan(opts options, command []string) (plan, error) {
 	// files used by a later bwrun invocation.
 	for _, name := range []string{".bwrun.json", ".bwrun.local.json", ".bwrun"} {
 		path := filepath.Join(cwd, name)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
 			continue
 		} else if err != nil {
 			return plan{}, fmt.Errorf("inspect runner policy path %s: %w", path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return plan{}, fmt.Errorf("runner policy path %s must not be a symbolic link", path)
 		}
 		resolved, err := filepath.EvalSymlinks(path)
 		if err != nil {
