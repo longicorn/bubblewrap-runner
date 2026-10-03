@@ -16,6 +16,7 @@ type MountConfig struct {
 
 type EnvConfig struct {
 	Pass []string          `json:"pass"`
+	Deny []string          `json:"deny"`
 	Set  map[string]string `json:"set"`
 }
 

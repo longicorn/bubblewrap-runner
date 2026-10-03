@@ -87,7 +87,7 @@ Configuration is resolved in the following priority order (highest to lowest):
 3. **User Global Configuration:** `~/.config/bwrun/config.json`.
 4. **Built-in Semantic Rules & Catalog:** Hardcoded defaults and AI-curated tool path catalog.
 
-For mount rules, settings from a higher layer replace lower-layer rules for the same destination; nested paths are applied from parent to child. Paths in project configuration are relative to the directory containing `.bwrun.json`, global paths are relative to the user's home, and CLI paths are relative to the starting directory. `HOME` is always set to the sandbox home path, and `BWRUN_SANDBOX=1` is always set so shells and scripts can identify sandbox execution. The runner starts Bubblewrap with a filtered environment: `PATH`, terminal, locale, and user identity variables are passed by default, while other variables must be listed under `env.pass` or supplied under `env.set`.
+For mount rules, settings from a higher layer replace lower-layer rules for the same destination; nested paths are applied from parent to child. Paths in project configuration are relative to the directory containing `.bwrun.json`, global paths are relative to the user's home, and CLI paths are relative to the starting directory. `HOME` is always set to the sandbox home path, and `BWRUN_SANDBOX=1` is always set so shells and scripts can identify sandbox execution. Existing host environment variables are passed through by default; `env.deny` filters variables and `env.set` sets or overrides them. `env.pass` can explicitly request a variable that is otherwise absent from the host environment when available.
 
 ### 4.2 Configuration Schema (JSON Example)
 ```json
