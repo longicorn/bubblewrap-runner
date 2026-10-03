@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const sandboxMarkerEnv = "BWRUN_SANDBOX"
+
 var validEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]string, error) {
@@ -30,7 +32,7 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 			if !validEnvName.MatchString(name) {
 				return nil, fmt.Errorf("invalid environment variable name %q", name)
 			}
-			if name == "HOME" || name == "PWD" {
+			if name == "HOME" || name == "PWD" || name == sandboxMarkerEnv {
 				return nil, fmt.Errorf("%s is managed by bwrun and cannot be overridden", name)
 			}
 			if layer.rank >= ranks[name] {
@@ -57,6 +59,7 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 	}
 	values["HOME"] = home
 	values["PWD"] = cwd
+	values[sandboxMarkerEnv] = "1"
 	names := make([]string, 0, len(values))
 	for name := range values {
 		names = append(names, name)

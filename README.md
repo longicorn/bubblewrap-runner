@@ -9,6 +9,14 @@ bwrun --ro ~/docs/shared -- gemini
 bwrun --dry-run -- bash
 ```
 
+Commands inside the sandbox receive `BWRUN_SANDBOX=1`. Add this at the end of `~/.bashrc` to mark an interactive Bash prompt:
+
+```bash
+if [[ ${BWRUN_SANDBOX:-} == 1 ]]; then
+  PS1="[bwrun] ${PS1}"
+fi
+```
+
 `bwrun init` creates a project `.bwrun.json` template and leaves an existing file untouched. Project settings go in `.bwrun.json`; user settings go in `~/.config/bwrun/config.json`:
 
 ```json
