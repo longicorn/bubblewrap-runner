@@ -14,6 +14,7 @@ This document records the architectural and design decisions made for `bwrun` (b
 - [ADR-0006: Child Process Execution with Transparent I/O and Signal Forwarding](#adr-0006-child-process-execution-with-transparent-io-and-signal-forwarding)
 - [ADR-0007: Default Host Network Passthrough with Opt-Out Flag](#adr-0007-default-host-network-passthrough-with-opt-out-flag)
 - [ADR-0008: Default Environment Variable Pass-Through with Explicit Deny/Override](#adr-0008-default-environment-variable-pass-through-with-explicit-denyoverride)
+- [ADR-0009: PID/IPC Namespace Isolation and Persistence Hardening](#adr-0009-pidipc-namespace-isolation-and-persistence-hardening)
 
 ---
 
@@ -243,3 +244,37 @@ Provide explicit configuration to deny or override specific environment variable
 
 #### Negative
 - Host secrets stored in environment variables (e.g., accidental export of tokens in a shell session) are visible to the sandboxed process unless explicitly listed in `env.deny`.
+
+---
+
+## ADR-0009: PID/IPC Namespace Isolation and Persistence Hardening
+
+### Status
+Accepted
+
+### Context
+When running untrusted developer tools or autonomous AI agents, sandboxed processes can potentially attempt to:
+1. **Inspect and tamper with host processes:** Without namespace isolation, processes in the sandbox can view host processes via `/proc`, attempt inter-process signaling (sending signals like `SIGKILL` or `SIGSTOP`), or interact with host IPC primitives (SysV shared memory, POSIX message queues, semaphores).
+2. **Subvert runner configuration (Privilege Escalation):** Because the current working directory (CWD) is mounted Read-Write (`--bind`), a malicious or errant agent could overwrite `<cwd>/.bwrun.json` or files under `<cwd>/.bwrun/` to weaken security boundaries (e.g., granting write permissions to sensitive host paths or removing denials) for subsequent runs.
+3. **Establish host persistence (Autostart Backdoors):** Because standard XDG directories under `~/.config` are writable for normal application state, an agent could plant autostart triggers (such as `~/.config/autostart/*.desktop` or `~/.config/systemd/user/*.service`) that execute arbitrary code outside the sandbox upon user login or user session startup.
+
+### Decision
+Implement three defense-in-depth isolation controls:
+1. **Unshared PID & IPC Namespaces by Default:**
+   - Always invoke `bwrap` with `--unshare-pid` and `--unshare-ipc`.
+   - Mount an isolated, private `/proc` inside the sandbox so only processes within the sandbox are visible and controllable.
+2. **Self-Protection of Runner Configurations in CWD:**
+   - After mounting CWD as Read-Write (`--bind`), automatically re-mount any existing `.bwrun.json`, `.bwrun.local.json`, and `.bwrun/` directory as Read-Only (`--ro-bind`).
+3. **Automatic Denial of Autostart / Persistence Paths:**
+   - Include `~/.config/autostart` and `~/.config/systemd/user` in the built-in deny list. Even though parent `~/.config` may be writable, these critical persistence vector paths are masked/denied inside the sandbox.
+
+### Consequences
+#### Positive
+- Prevents cross-process snooping, signal injection, and IPC interference between sandbox processes and host processes.
+- Eliminates the risk of agents modifying their own sandbox policy to escalate privileges on subsequent invocations.
+- Closes the primary vector for persistent malware/backdoor installation on modern Linux desktop and systemd user environments.
+- Zero configuration required from the user to benefit from these protections.
+
+#### Negative
+- Sandboxed processes cannot intentionally configure user autostart services or systemd user units without explicit configuration override.
+- Configuration files (`.bwrun.json`) cannot be modified directly from inside the sandbox; modifications must occur on the host.
