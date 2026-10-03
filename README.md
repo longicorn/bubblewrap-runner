@@ -1,10 +1,10 @@
-# bwrun
+# bubblewrap-runner
 
-`bwrun` starts a command in a Bubblewrap sandbox. The host filesystem remains visible at its normal paths, read-only by default. The current working directory is writable. Existing top-level dotfiles and dotdirectories are visible read-only; XDG config/cache/data/state directories and known package caches are writable. Known credential and shell-history paths stay hidden.
+`bubblewrap-runner` starts a command in a Bubblewrap sandbox. The host filesystem remains visible at its normal paths, read-only by default. The current working directory is writable. Existing top-level dotfiles and dotdirectories are visible read-only; XDG config/cache/data/state directories and known package caches are writable. Known credential and shell-history paths stay hidden.
 
 ## Prerequisites
 
-`bwrun` is a wrapper around [Bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`). You must have `bwrap` installed on your host system.
+`bubblewrap-runner` is a wrapper around [Bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`). You must have `bwrap` installed on your host system.
 
 ## Usage
 
