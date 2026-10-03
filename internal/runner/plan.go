@@ -150,6 +150,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 	}
 	for _, path := range []string{
 		"~/go",
+		"~/.config/autostart", "~/.config/systemd/user",
 		"~/.ssh", "~/.gnupg", "~/.aws", "~/.azure", "~/.kube", "~/.pki/nssdb",
 		"~/.docker/config.json", "~/.config/gcloud", "~/.config/gh/hosts.yml", "~/.config/gh/hosts.yaml",
 		"~/.config/gcloud/application_default_credentials.json", "~/.config/containers/auth.json", "~/.config/goose/credentials.yaml",
@@ -169,6 +170,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 		}
 	}
 	for _, item := range []struct{ name, relative string }{
+		{"XDG_CONFIG_HOME", "autostart"}, {"XDG_CONFIG_HOME", "systemd/user"},
 		{"XDG_CONFIG_HOME", "gcloud"}, {"XDG_CONFIG_HOME", "gh/hosts.yml"},
 		{"XDG_CONFIG_HOME", "gh/hosts.yaml"}, {"XDG_CONFIG_HOME", "containers/auth.json"},
 		{"XDG_CONFIG_HOME", "goose/credentials.yaml"}, {"XDG_CONFIG_HOME", "opencode/auth.json"},
@@ -269,7 +271,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 		return mounts[i].path < mounts[j].path
 	})
 
-	args := []string{"--die-with-parent", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", home}
+	args := []string{"--die-with-parent", "--unshare-pid", "--unshare-ipc", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", home}
 	if opts.noNet || netDenied {
 		args = append(args, "--unshare-net")
 	}
@@ -344,6 +346,25 @@ func buildPlan(opts options, command []string) (plan, error) {
 				args = append(args, "--ro-bind", "/dev/null", item.path)
 			}
 		}
+	}
+	// Apply these last so even explicit writable rules cannot alter the policy
+	// files used by a later bwrun invocation.
+	for _, name := range []string{".bwrun.json", ".bwrun.local.json", ".bwrun"} {
+		path := filepath.Join(cwd, name)
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return plan{}, fmt.Errorf("inspect runner policy path %s: %w", path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return plan{}, fmt.Errorf("runner policy path %s must not be a symbolic link", path)
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return plan{}, fmt.Errorf("resolve runner policy path %s: %w", path, err)
+		}
+		args = append(args, "--ro-bind", resolved, resolved)
 	}
 	args = append(args, "--chdir", cwd)
 	sandboxPath := filteredPath(os.Getenv("PATH"), cwd, home, mounts)
