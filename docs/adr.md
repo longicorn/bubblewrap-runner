@@ -89,15 +89,15 @@ At the same time, sensitive personal files (`~/.ssh`, `~/.gnupg`, `~/.aws`, othe
 Adopt a three-tier semantic layering model:
 1. **Base Layer (System Infrastructure):** The host root filesystem (`/`) is visible at its normal paths and read-only. `/dev` and `/proc` are instantiated by bwrap, and `/tmp` is private temporary storage.
 2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG config/cache/data/state roots and known package caches receive Read-Write mounts; known credential and history paths are denied.
-3. **User Layer (Workspace & Personal Data):** `$HOME` is denied/hidden by default. Only the Current Working Directory (CWD) is mounted as Read-Write (`--bind`), along with explicitly whitelisted paths.
+3. **User Layer (Workspace & Personal Data):** The host `$HOME` is masked at its original path, then selectively repopulated. The Current Working Directory (CWD) is mounted Read-Write (`--bind`); the Config Layer's automatic dotfile, XDG, and cache mounts, project sandbox entries, and explicitly permitted paths are also visible. Other home contents remain hidden.
 
 Additionally, support **Shadow Mounts** to allow substituting sensitive target paths (e.g., replacing real `~/.ssh` with isolated dummy or project-specific keys).
 
 ### Consequences
 #### Positive
-- Secure by default: Agent can only modify files inside the project working directory and explicitly writable paths; the rest of the host root remains read-only.
-- Global tool skills and configs remain readable without vulnerability to tampering or deletion.
-- Prevents exfiltration of host secrets located in personal home subdirectories.
+- Writable access is limited to the project working directory, automatically writable XDG directories and known caches, project sandbox entries, and explicitly writable paths; the rest of the host root remains read-only.
+- Automatically exposed dotfiles remain readable; those without a more specific writable rule are protected from tampering or deletion.
+- Known credential and history paths are denied within automatically exposed home paths; unrelated home contents remain hidden.
 
 #### Negative
 - Tools that insist on writing state to non-cache dotfiles in `$HOME` may fail unless explicitly configured in user/project configs.

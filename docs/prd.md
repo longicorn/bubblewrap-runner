@@ -38,9 +38,9 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 
 ```
 +-------------------------------------------------------------------+
-| User Layer: Deny by default (Hidden)                              |
+| User Layer: Home masked, with defined exceptions                 |
 |   - Current Working Directory (CWD): READ-WRITE (RW)              |
-|   - Specific Whitelisted Paths: RO / RW / Deny                    |
+|   - Project sandbox entries RW; explicit paths RO / RW / Deny     |
 +-------------------------------------------------------------------+
 | Config Layer: Dotfiles RO; XDG and known caches RW                |
 |   - XDG config/cache/data/state directories                       |
@@ -53,7 +53,7 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 ```
 
 ### 3.1 Base Layer (System Infrastructure)
-* **Scope:** The host root filesystem (`/`) is visible at the same paths inside the sandbox, including `/usr`, `/lib`, `/bin`, `/etc`, `/var`, and `/home`.
+* **Scope:** The host root filesystem (`/`) is initially visible at the same paths inside the sandbox, including `/usr`, `/lib`, `/bin`, `/etc`, `/var`, and `/home`. The host home directory is then masked and selectively repopulated as described below.
 * **Policy:**
   * The root filesystem is read-only by default. `/dev` and `/proc` are provided as sandbox instances. This makes commands such as `ls /` and host-installed tools behave as expected while keeping writes outside permitted paths from changing host files.
   * **Namespace Isolation:** Bubblewrap creates unshared PID (`--unshare-pid`) and IPC (`--unshare-ipc`) namespaces by default. Sandboxed processes cannot inspect, signal, or communicate via shared memory/semaphores with host processes outside the sandbox. A fresh `/proc` instance is mounted to strictly reflect sandboxed processes.
@@ -69,11 +69,11 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 ### 3.3 User Layer (User Data & Workspaces)
 * **Scope:** Personal files under `$HOME` (Documents, Downloads, unrelated code repositories, sensitive credentials like `~/.ssh`, `~/.gnupg`, etc.).
 * **Policy:**
-  * **Default:** Deny (`hidden` / not mounted), implemented by masking the host home directory while preserving its path.
+  * **Default:** Mask the host home directory while preserving its path. Existing top-level dotfiles, XDG directories, and known tool caches are then exposed according to the Config Layer rules in Section 3.2; other home contents remain hidden unless a workspace, project sandbox entry, or explicit rule exposes them.
 * **Current Working Directory (CWD):** Automatically mounted as Read-Write (`--bind`) so the command can perform its intended modifications within the project root.
   * **Runner Self-Protection:** Any configuration files or directories controlling sandbox behavior inside CWD (specifically `.bwrun.json`, `.bwrun.local.json`, and the `.bwrun/` directory) are automatically re-mounted as Read-Only (`--ro-bind`) over the writable CWD. This prevents sandboxed processes from tampering with security policies for subsequent runs.
 * **Explicit Whitelists:** Paths explicitly permitted in configuration can be exposed as Read-Only or Read-Write.
-* A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory and paths explicitly allowed by policy; other host home contents remain hidden.
+* A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory, the Config Layer's automatic mounts, project sandbox entries, and paths explicitly allowed by policy; other host home contents remain hidden.
 
 ### 3.4 Shadow / Injection Mounts (Credential & Config Isolation)
 * Secure sandbox substitution: Instead of exposing host sensitive paths (such as `~/.ssh` or environment variables), users can define isolated project-specific credentials.
@@ -195,7 +195,7 @@ bwrun --dry-run -- goose
 ### Phase 1: MVP (Core Runner)
 * CLI with `bwrun [flags] -- <command>` and the convenient `bwrun <command>` form.
 * `bwrun init` to create a project configuration template without overwriting existing settings.
-* Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and other home paths are hidden unless explicitly allowed.
+* Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and home paths are hidden except for automatic Config Layer mounts, project sandbox entries, and explicitly allowed paths.
 * Support for project config (`.bwrun.json`) and user global config (`~/.config/bwrun/config.json`).
 * `--dry-run` flag to inspect generated `bwrap` invocation.
 
