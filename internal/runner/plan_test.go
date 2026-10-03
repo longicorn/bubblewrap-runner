@@ -124,6 +124,51 @@ func TestBuildPlanProjectShadowMount(t *testing.T) {
 	}
 }
 
+func TestBuildPlanExplicitConfigIgnoresDiscoveredConfigsAndProjectSandbox(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(home, "project")
+	profileDir := filepath.Join(home, "profiles")
+	globalDir := filepath.Join(home, ".config", "bwrun")
+	shadow := filepath.Join(cwd, ".bwrun", "sandbox", ".ssh")
+	for _, dir := range []string{profileDir, globalDir, shadow} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, body := range map[string]string{
+		filepath.Join(globalDir, "config.json"): `{"env":{"set":{"BWRUN_GLOBAL_ONLY":"yes"}}}`,
+		filepath.Join(cwd, ".bwrun.json"):       `{"env":{"set":{"BWRUN_PROJECT_ONLY":"yes"}}}`,
+		filepath.Join(profileDir, "agent.json"): `{"env":{"deny":["BWRUN_SECRET"],"set":{"BWRUN_PROFILE_ONLY":"yes"}}}`,
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BWRUN_SECRET", "secret")
+	inDirectory(t, cwd)
+	sandbox, err := buildPlan(options{configPath: "../profiles/agent.json"}, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := lookupEnv(sandbox.env, "BWRUN_PROFILE_ONLY"); !ok || got != "yes" {
+		t.Fatalf("profile value = %q, %v", got, ok)
+	}
+	for _, name := range []string{"BWRUN_GLOBAL_ONLY", "BWRUN_PROJECT_ONLY", "BWRUN_SECRET"} {
+		if _, ok := lookupEnv(sandbox.env, name); ok {
+			t.Errorf("unexpected environment variable %s", name)
+		}
+	}
+	if hasSequence(sandbox.args, "--bind", shadow, filepath.Join(home, ".ssh")) {
+		t.Fatal("discovered project sandbox was mounted with explicit config")
+	}
+	if !hasSequence(sandbox.args, "--ro-bind", "/dev/null", filepath.Join(profileDir, "agent.json")) {
+		t.Fatal("explicit config is not hidden inside the sandbox")
+	}
+}
+
 func TestWithin(t *testing.T) {
 	if !within("/home/user", "/home/user/project") {
 		t.Fatal("child path not recognized")

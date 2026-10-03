@@ -46,7 +46,13 @@ func buildPlan(opts options, command []string) (plan, error) {
 	if cwd == home {
 		return plan{}, fmt.Errorf("starting in the home directory would expose it as the writable workspace; change to a project directory first")
 	}
-	layers, err := loadConfigLayers(cwd, home)
+	var layers []configLayer
+	var explicitConfigPath string
+	if opts.configPath != "" {
+		layers, explicitConfigPath, err = loadExplicitConfig(opts.configPath, cwd, home)
+	} else {
+		layers, err = loadConfigLayers(cwd, home)
+	}
 	if err != nil {
 		return plan{}, err
 	}
@@ -191,7 +197,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 			return plan{}, err
 		}
 	}
-	if sandboxDir, found, err := findProjectSandboxDir(cwd, home); err != nil {
+	if sandboxDir, found, err := findProjectSandboxDirForOptions(cwd, home, opts); err != nil {
 		return plan{}, err
 	} else if found {
 		resolvedDir, err := filepath.EvalSymlinks(sandboxDir)
@@ -256,6 +262,11 @@ func buildPlan(opts options, command []string) (plan, error) {
 	}
 	for _, path := range opts.deny {
 		if err := add(path, cwd, "deny", 3, false); err != nil {
+			return plan{}, err
+		}
+	}
+	if explicitConfigPath != "" {
+		if err := add(explicitConfigPath, cwd, "deny", 4, true); err != nil {
 			return plan{}, err
 		}
 	}
@@ -351,6 +362,9 @@ func buildPlan(opts options, command []string) (plan, error) {
 	// files used by a later bwrun invocation.
 	for _, name := range []string{".bwrun.json", ".bwrun.local.json", ".bwrun"} {
 		path := filepath.Join(cwd, name)
+		if path == explicitConfigPath {
+			continue
+		}
 		info, err := os.Lstat(path)
 		if os.IsNotExist(err) {
 			continue
@@ -374,6 +388,13 @@ func buildPlan(opts options, command []string) (plan, error) {
 	}
 	args = append(args, append([]string{"--"}, command...)...)
 	return plan{args: args, env: env, fileCount: len(orderedFiles)}, nil
+}
+
+func findProjectSandboxDirForOptions(cwd, home string, opts options) (string, bool, error) {
+	if opts.configPath != "" {
+		return "", false, nil
+	}
+	return findProjectSandboxDir(cwd, home)
 }
 
 // findProjectSandboxDir locates the nearest .bwrun/sandbox directory. A

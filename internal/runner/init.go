@@ -18,7 +18,7 @@ func initializeProject() error {
 		Version: "1",
 		Network: "allow",
 		Mounts:  MountConfig{RO: []string{}, RW: []string{}, Deny: []string{}},
-		Env:     EnvConfig{Pass: []string{}, Set: map[string]string{}},
+		Env:     EnvConfig{Pass: []string{}, Deny: []string{}, Set: map[string]string{}},
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

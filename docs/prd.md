@@ -90,6 +90,8 @@ Configuration is resolved in the following priority order (highest to lowest):
 3. **User Global Configuration:** `~/.config/bwrun/config.json`.
 4. **Built-in Semantic Rules & Catalog:** Hardcoded defaults and AI-curated tool path catalog.
 
+When `--config <file>` is given, only that file is used as the configuration layer. The global and nearest-project configuration files are not discovered, and nearest-project `.bwrun/sandbox/` entries are not injected. Built-in semantic rules and CLI flags still apply. The file must exist and must not be a symbolic link. Relative `--config` paths are resolved from the starting directory, while relative paths inside the file are resolved from the file's directory. The selected file is hidden inside the sandbox to prevent changes to the policy for later runs.
+
 For mount rules, settings from a higher layer replace lower-layer rules for the same destination; nested paths are applied from parent to child. Paths in project configuration are relative to the directory containing `.bwrun.json`, global paths are relative to the user's home, and CLI paths are relative to the starting directory. `HOME` is always set to the sandbox home path, and `BWRUN_SANDBOX=1` is always set so shells and scripts can identify sandbox execution. Existing host environment variables are passed through by default; `env.deny` filters variables and `env.set` sets or overrides them. `env.pass` can explicitly request a variable that is otherwise absent from the host environment when available.
 
 ### 4.2 Configuration Schema (JSON Example)
@@ -123,6 +125,7 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
       "TERM",
       "LANG"
     ],
+    "deny": [],
     "set": {
       "CI": "true"
     }
@@ -170,6 +173,7 @@ bwrun -- bash
 
 # Dry-run to inspect the generated bwrap command line
 bwrun --dry-run -- goose
+bwrun --config ~/.config/bwrun/profiles/agent.json -- goose
 ```
 
 ### 5.3 Execution & Process Management
