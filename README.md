@@ -2,6 +2,12 @@
 
 `bwrun` starts a command in a Bubblewrap sandbox. The host filesystem remains visible at its normal paths, read-only by default. The current working directory is writable. Existing top-level dotfiles and dotdirectories are visible read-only; XDG config/cache/data/state directories and known package caches are writable. Known credential and shell-history paths stay hidden.
 
+## Prerequisites
+
+`bwrun` is a wrapper around [Bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`). You must have `bwrap` installed on your host system.
+
+## Usage
+
 ```sh
 bwrun init
 bwrun bash
@@ -38,4 +44,4 @@ Project-local home files can be supplied without adding mount entries: put them 
 ```
 
 Install Bubblewrap (`bwrap`) on Linux, then build with `go build ./cmd/bwrun`.
-Host PATH entries outside the home directory remain available. To use a tool installed under the home directory, add its binary directory to `mounts.ro` (or `mounts.rw` if it needs to write there); variables such as API keys must be listed in `env.pass`.
+Host environment variables are inherited by default. Use `env.deny` to filter sensitive variables, `env.pass` to explicitly pass a variable, or `env.set` to set or override a value. To use a tool installed under the home directory, add its binary directory to `mounts.ro` (or `mounts.rw` if it needs to write there).
