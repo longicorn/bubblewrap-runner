@@ -62,9 +62,9 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 * **Scope:** Tool configuration directories, runtime caches, and shared assets (e.g., prompt templates, agent skills, shared memo directories).
 * **Policy:**
   * Existing top-level dotfiles and dotdirectories are mounted Read-Only by default.
-  * XDG config, cache, data, and state directories are mounted Read-Write. Custom `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` values are honored when their paths exist.
+  * Existing XDG config, cache, data, and state directories are mounted Read-Write when they resolve beneath the host home directory. Custom `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` values outside the home directory require an explicit writable mount rule.
   * A built-in catalog assigns write access to known package caches and state paths, including `~/.npm`, `~/.pnpm-store`, `~/.yarn`, Cargo registry/git caches, Go module caches, `~/.gem`, `~/.gradle`, and `~/.m2/repository`. Toolchains and shared runtimes such as `~/.nvm`, `~/.rustup`, `~/.pyenv`, and `~/go` remain Read-Only.
-  * Known credentials, private keys, shell histories, and autostart/persistence vectors (specifically `~/.config/autostart` and `~/.config/systemd/user`) are denied even when their parent dotdirectory is mounted. Explicit project, user, or CLI rules can override the built-in catalog.
+  * Known credentials, private keys, shell histories, and autostart/persistence vectors (specifically `~/.config/autostart` and `~/.config/systemd/user`) are denied even when their parent dotdirectory is mounted. If a denied path does not exist, its nearest writable containing mount is made Read-Only so the sandbox cannot create the path on the host. Explicit project, user, or CLI rules can override the built-in catalog.
 
 ### 3.3 User Layer (User Data & Workspaces)
 * **Scope:** Personal files under `$HOME` (Documents, Downloads, unrelated code repositories, sensitive credentials like `~/.ssh`, `~/.gnupg`, etc.).

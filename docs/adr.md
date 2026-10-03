@@ -88,7 +88,7 @@ At the same time, sensitive personal files (`~/.ssh`, `~/.gnupg`, `~/.aws`, othe
 ### Decision
 Adopt a three-tier semantic layering model:
 1. **Base Layer (System Infrastructure):** The host root filesystem (`/`) is visible at its normal paths and read-only. `/dev` and `/proc` are instantiated by bwrap, and `/tmp` is private temporary storage.
-2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG config/cache/data/state roots and known package caches receive Read-Write mounts; known credential and history paths are denied.
+2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG config/cache/data/state roots that resolve beneath the host home, and known package caches, receive Read-Write mounts; known credential and history paths are denied. When a denied path is absent, its nearest writable containing mount is made Read-Only to prevent creation on the host.
 3. **User Layer (Workspace & Personal Data):** The host `$HOME` is masked at its original path, then selectively repopulated. The Current Working Directory (CWD) is mounted Read-Write (`--bind`); the Config Layer's automatic dotfile, XDG, and cache mounts, project sandbox entries, and explicitly permitted paths are also visible. Other home contents remain hidden.
 
 Additionally, support **Shadow Mounts** to allow substituting sensitive target paths (e.g., replacing real `~/.ssh` with isolated dummy or project-specific keys).
@@ -101,6 +101,7 @@ Additionally, support **Shadow Mounts** to allow substituting sensitive target p
 
 #### Negative
 - Tools that insist on writing state to non-cache dotfiles in `$HOME` may fail unless explicitly configured in user/project configs.
+- A missing denied path can make its containing XDG directory or workspace Read-Only, preventing otherwise permitted writes until the denied path exists or policy is explicitly changed.
 
 ---
 

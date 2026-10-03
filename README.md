@@ -45,3 +45,5 @@ Project-local home files can be supplied without adding mount entries: put them 
 
 Install Bubblewrap (`bwrap`) on Linux, then build with `go build ./cmd/bwrun`.
 Host environment variables are inherited by default. Use `env.deny` to filter sensitive variables, `env.pass` to explicitly pass a variable, or `env.set` to set or override a value. To use a tool installed under the home directory, add its binary directory to `mounts.ro` (or `mounts.rw` if it needs to write there).
+Automatic writable XDG mounts are limited to paths that resolve beneath your home directory. Add an explicit `mounts.rw` rule if an XDG directory outside your home needs write access.
+If a denied path does not yet exist inside a writable directory, `bwrun` mounts that directory read-only for the run. This prevents the sandbox from creating the denied path on the host; other writes in that directory will also fail.

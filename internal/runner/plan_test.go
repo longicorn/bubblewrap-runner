@@ -2,6 +2,7 @@ package runner
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -70,6 +71,139 @@ func TestBuildPlanRejectsHomeAsWorkspace(t *testing.T) {
 	inDirectory(t, home)
 	if _, err := buildPlan(options{}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "home directory") {
 		t.Fatalf("buildPlan error = %v; want home workspace rejection", err)
+	}
+}
+
+func TestBuildPlanLimitsAutomaticXDGWritableMountsToHome(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(root, "project")
+	outside := filepath.Join(root, "outside")
+	inside := filepath.Join(home, "xdg-cache")
+	link := filepath.Join(home, "xdg-link")
+	for _, dir := range []string{home, cwd, outside, inside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", outside)
+	t.Setenv("XDG_CACHE_HOME", inside)
+	t.Setenv("XDG_DATA_HOME", link)
+	t.Setenv("XDG_STATE_HOME", outside)
+	inDirectory(t, cwd)
+
+	plan, err := buildPlan(options{}, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSequence(plan.args, "--bind", inside, inside) {
+		t.Fatal("XDG directory within home was not writable")
+	}
+	if hasSequence(plan.args, "--bind", outside, outside) || hasSequence(plan.args, "--bind", outside, link) {
+		t.Fatal("XDG directory outside home was mounted writable automatically")
+	}
+
+	plan, err = buildPlan(options{rw: stringList{outside}}, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSequence(plan.args, "--bind", outside, outside) {
+		t.Fatal("explicit writable mount outside home was not applied")
+	}
+}
+
+func TestBuildPlanDowngradesWritableParentOfMissingDeniedPath(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(root, "project")
+	config := filepath.Join(home, ".config")
+	for _, dir := range []string{home, cwd, config} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "absent-cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "absent-data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "absent-state"))
+	inDirectory(t, cwd)
+
+	plan, err := buildPlan(options{}, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lastMountMode(plan.args, config) != "--ro-bind" {
+		t.Fatal("XDG config stayed writable despite missing denied paths")
+	}
+	if _, err := os.Stat(filepath.Join(config, "autostart")); !os.IsNotExist(err) {
+		t.Fatalf("planning created denied path on host: %v", err)
+	}
+
+	missing := filepath.Join(cwd, "blocked")
+	plan, err = buildPlan(options{deny: stringList{missing}}, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lastMountMode(plan.args, cwd) != "--ro-bind" {
+		t.Fatal("workspace stayed writable despite missing explicit denial")
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("planning created denied workspace path on host: %v", err)
+	}
+
+	readonly := filepath.Join(cwd, "readonly")
+	if err := os.Mkdir(readonly, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = buildPlan(options{ro: stringList{readonly}, deny: stringList{filepath.Join(readonly, "blocked")}}, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lastMountMode(plan.args, cwd) != "--bind" {
+		t.Fatal("writable workspace was downgraded despite a closer read-only mount")
+	}
+}
+
+func TestMissingDeniedPathCannotBeCreatedInSandbox(t *testing.T) {
+	bwrap, err := exec.LookPath("bwrap")
+	if err != nil {
+		t.Skip("bubblewrap is not installed")
+	}
+	if err := exec.Command(bwrap, "--ro-bind", "/", "/", "--", "true").Run(); err != nil {
+		t.Skipf("bubblewrap namespaces are unavailable: %v", err)
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(root, "project")
+	config := filepath.Join(home, ".config")
+	for _, dir := range []string{home, cwd, config} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "absent-cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "absent-data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "absent-state"))
+	inDirectory(t, cwd)
+
+	denied := filepath.Join(config, "autostart")
+	plan, err := buildPlan(options{}, []string{"sh", "-c", "mkdir \"$HOME/.config/autostart\" 2>/dev/null; test ! -e \"$HOME/.config/autostart\""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := runChild(bwrap, plan)
+	if err != nil || code != 0 {
+		t.Fatalf("sandbox command exited %d: %v", code, err)
+	}
+	if _, err := os.Stat(denied); !os.IsNotExist(err) {
+		t.Fatalf("sandbox created denied path on host: %v", err)
 	}
 }
 
