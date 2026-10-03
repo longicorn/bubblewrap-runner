@@ -13,14 +13,23 @@ func runChild(bwrap string, sandbox plan) (int, error) {
 	cmd := exec.Command(bwrap, sandbox.args...)
 	cmd.Env = sandbox.env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if needsEmptyFile(sandbox.args) {
+	files := make([]*os.File, 0, sandbox.fileCount)
+	defer func() {
+		for _, file := range files {
+			_ = file.Close()
+		}
+	}()
+	for index := 0; index < sandbox.fileCount; index++ {
 		empty, err := os.Open(os.DevNull)
 		if err != nil {
+			for _, file := range files {
+				_ = file.Close()
+			}
 			return 1, fmt.Errorf("open null device: %w", err)
 		}
-		defer empty.Close()
-		cmd.ExtraFiles = []*os.File{empty} // Bubblewrap sees this as file descriptor 3.
+		files = append(files, empty)
 	}
+	cmd.ExtraFiles = files // ExtraFiles are mapped consecutively starting at fd 3.
 	if err := cmd.Start(); err != nil {
 		return 127, fmt.Errorf("start bubblewrap: %w", err)
 	}
@@ -49,15 +58,6 @@ func runChild(bwrap string, sandbox plan) (int, error) {
 		}
 	}
 	return 1, fmt.Errorf("wait for bubblewrap: %w", err)
-}
-
-func needsEmptyFile(args []string) bool {
-	for index := 0; index+1 < len(args); index++ {
-		if args[index] == "--file" && args[index+1] == "3" {
-			return true
-		}
-	}
-	return false
 }
 
 func shellJoin(args []string) string {

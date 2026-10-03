@@ -14,6 +14,8 @@ func buildEnvironment(layers []configLayer, home, cwd, sandboxPath string) ([]st
 	pass := map[string]bool{
 		"PATH": true, "TERM": true, "LANG": true, "LC_ALL": true,
 		"LC_CTYPE": true, "USER": true, "LOGNAME": true, "SHELL": true,
+		"XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true,
+		"XDG_DATA_HOME": true, "XDG_STATE_HOME": true,
 	}
 	values := map[string]string{}
 	ranks := map[string]int{}

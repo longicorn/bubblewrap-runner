@@ -42,6 +42,7 @@ func initializeProject() error {
 		return fmt.Errorf("close project config %s: %w", path, err)
 	}
 	fmt.Fprintf(os.Stdout, "Created %s\n", path)
-	fmt.Fprintln(os.Stdout, "Add paths under mounts.ro, mounts.rw, or mounts.deny, then run commands with bwrun.")
+	fmt.Fprintln(os.Stdout, "Default dotfile, XDG, and tool-cache rules apply automatically.")
+	fmt.Fprintln(os.Stdout, "Add project-specific paths under mounts.ro, mounts.rw, or mounts.deny.")
 	return nil
 }

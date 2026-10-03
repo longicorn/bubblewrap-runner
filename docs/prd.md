@@ -42,10 +42,10 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 |   - Current Working Directory (CWD): READ-WRITE (RW)              |
 |   - Specific Whitelisted Paths: RO / RW / Deny                    |
 +-------------------------------------------------------------------+
-| Config Layer: Read-Only by default                                |
-|   - XDG Directories (~/.config, ~/.cache, ~/.local/share)        |
-|   - Legacy Tool Paths (~/.npm, ~/.cargo, ~/.nvm, dotfiles)        |
-|   - Tool Caches & Temp Runtimes: Selective RW or tmpfs            |
+| Config Layer: Dotfiles RO; XDG and known caches RW                |
+|   - XDG config/cache/data/state directories                       |
+|   - Legacy runtimes RO; package caches RW                         |
+|   - Known credentials and histories denied                       |
 +-------------------------------------------------------------------+
 | Base Layer: Host root visible read-only                           |
 |   - /, including system paths and /home                            |
@@ -59,9 +59,10 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 ### 3.2 Config Layer (Developer Tools, Dotfiles, & Runtimes)
 * **Scope:** Tool configuration directories, runtime caches, and shared assets (e.g., prompt templates, agent skills, shared memo directories).
 * **Policy:**
-  * **Default:** Explicitly selected tool configuration and runtime paths are Read-Only (`--ro-bind`). The whole home directory is not implicitly exposed, since it may contain credentials.
-  * **Cache / State Directories:** Mapped to `tmpfs` or selective Read-Write (`--bind`) when write access is essential for execution (e.g., temporary lockfiles or build cache).
-  * **Built-in Catalog:** Recognizes both standard XDG directories and widespread legacy dotfiles/paths (e.g., `~/.npm`, `~/.cargo`, `~/.rustup`, `~/.gemini`, `~/.goose`, `~/.gitconfig`).
+  * Existing top-level dotfiles and dotdirectories are mounted Read-Only by default.
+  * XDG config, cache, data, and state directories are mounted Read-Write. Custom `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` values are honored when their paths exist.
+  * A built-in catalog assigns write access to known package caches and state paths, including `~/.npm`, `~/.pnpm-store`, `~/.yarn`, Cargo registry/git caches, Go module caches, `~/.gem`, `~/.gradle`, and `~/.m2/repository`. Toolchains and shared runtimes such as `~/.nvm`, `~/.rustup`, `~/.pyenv`, and `~/go` remain Read-Only.
+  * Known credentials, private keys, and shell histories are denied even when their parent dotdirectory is mounted. Explicit project, user, or CLI rules can override the built-in catalog.
 
 ### 3.3 User Layer (User Data & Workspaces)
 * **Scope:** Personal files under `$HOME` (Documents, Downloads, unrelated code repositories, sensitive credentials like `~/.ssh`, `~/.gnupg`, etc.).
@@ -127,13 +128,15 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
 ```
 
 ### 4.3 AI-Curated Tool Catalog
-To relieve developers from mapping dozens of non-XDG dotfiles manually, `bwrun` includes a built-in knowledge catalog covering common tools:
-* **Node.js / JavaScript:** `~/.npm`, `~/.nvm`, `~/.yarn`, `~/.pnpm-store`
-* **Rust:** `~/.cargo`, `~/.rustup`
-* **Python:** `~/.pyenv`, `~/.virtualenvs`, `~/.pip`
-* **Go:** `~/go`, `~/.cache/go-build`
-* **Git:** `~/.gitconfig`, `~/.config/git`
-* **AI Agents & MCPs:** `~/.gemini`, `~/.goose`, `~/.claude`, global skills/recipes directories.
+To relieve developers from mapping dozens of non-XDG paths manually, `bwrun` discovers existing top-level dotfiles and dotdirectories and mounts them read-only, then applies a built-in writable-path catalog for common caches and state:
+* **Node.js / JavaScript:** `~/.npm`, `~/.pnpm-store`, `~/.yarn` writable; `~/.nvm` and tool configuration read-only.
+* **Rust:** `~/.cargo` read-only except `registry` and `git` caches; `~/.rustup` read-only.
+* **Python:** runtime/configuration paths such as `~/.pyenv`, `~/.virtualenvs`, and `~/.pip` read-only; XDG caches writable.
+* **Go:** `~/go` read-only except module and checksum databases; XDG build cache writable.
+* **Java / Ruby:** Gradle and Maven repositories plus RubyGems caches writable; credential-bearing settings files denied.
+* **AI agents and developer tools:** dotdirectories such as `~/.gemini`, `~/.goose`, and `~/.claude` read-only, with known credential files denied.
+
+The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.codex/auth.json`, agent login files, `~/.netrc`, package registry credentials, and shell histories. Higher-priority explicit rules can allow a path when a project intentionally needs it.
 
 ---
 

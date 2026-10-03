@@ -86,7 +86,7 @@ At the same time, sensitive personal files (`~/.ssh`, `~/.gnupg`, `~/.aws`, othe
 ### Decision
 Adopt a three-tier semantic layering model:
 1. **Base Layer (System Infrastructure):** The host root filesystem (`/`) is visible at its normal paths and read-only. `/dev` and `/proc` are instantiated by bwrap, and `/tmp` is private temporary storage.
-2. **Config Layer (Developer Tools & Dotfiles):** Tool configurations and runtimes (e.g., `~/.npm`, `~/.cargo`, `~/.config/goose`) are mounted Read-Only by default. Caches/locks can optionally receive tmpfs or selective RW mounts.
+2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG config/cache/data/state roots and known package caches receive Read-Write mounts; known credential and history paths are denied.
 3. **User Layer (Workspace & Personal Data):** `$HOME` is denied/hidden by default. Only the Current Working Directory (CWD) is mounted as Read-Write (`--bind`), along with explicitly whitelisted paths.
 
 Additionally, support **Shadow Mounts** to allow substituting sensitive target paths (e.g., replacing real `~/.ssh` with isolated dummy or project-specific keys).

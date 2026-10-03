@@ -1,6 +1,6 @@
 # bwrun
 
-`bwrun` starts a command in a Bubblewrap sandbox. The host filesystem remains visible at its normal paths, read-only by default. The current working directory is writable, while other paths under the user's home directory stay hidden unless explicitly allowed.
+`bwrun` starts a command in a Bubblewrap sandbox. The host filesystem remains visible at its normal paths, read-only by default. The current working directory is writable. Existing top-level dotfiles and dotdirectories are visible read-only; XDG config/cache/data/state directories and known package caches are writable. Known credential and shell-history paths stay hidden.
 
 ```sh
 bwrun init

@@ -33,6 +33,17 @@ type configLayer struct {
 	rank   int
 }
 
+func configuredEnv(name string, layers []configLayer) string {
+	value := os.Getenv(name)
+	rank := 0
+	for _, layer := range layers {
+		if configured, ok := layer.config.Env.Set[name]; ok && layer.rank >= rank {
+			value, rank = configured, layer.rank
+		}
+	}
+	return value
+}
+
 func loadConfigLayers(cwd, home string) ([]configLayer, error) {
 	var layers []configLayer
 	globalDir, err := os.UserConfigDir()
