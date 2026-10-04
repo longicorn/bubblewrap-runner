@@ -8,27 +8,36 @@ With the rise of autonomous and semi-autonomous AI coding agents (such as Goose,
 * **Direct host execution is dangerous:** In practice, developers frequently run AI agents directly on their host machines and grant tool-based file modification privileges (e.g., via Computer Controller MCPs or bash tools). Even though developers understand the risk of accidental host-wide destruction or exfiltration of sensitive files (`~/.ssh`, `~/.aws`, personal documents), the overhead of containerization makes it difficult to adopt containers for daily personal development.
 * **Bubblewrap (`bwrap`) is powerful but complex:** Bubblewrap provides lightweight, unprivileged user-namespace sandboxing on Linux without container runtime overhead. However, handcrafting bwrap command-line arguments (mounting dozens of system paths, selective home directory mappings, handling permissions) for each project and tool is tedious and error-prone.
 
-### 1.2 Proposed Solution
+### 1.2 Proposed Solution & Practical Threat Model
 `bwrun` (bubblewrap-runner) is an automated, intelligent sandbox runner built on top of `bubblewrap`. It analyzes the semantics of the filesystem and tool ecosystems, dynamically builds fine-grained bubblewrap arguments, and executes commands safely and transparently with zero-to-low configuration.
+
+#### Practical Threat Model & Realistic Security Goals
+`bwrun` does not claim to prevent sophisticated kernel-level zero-day sandbox escapes or host takeovers if an AI agent runs dedicated adversarial exploit payloads. Instead, it addresses the **primary practical risks of daily host execution**:
+1. **Cross-Project Code & Data Leakage:** Developers often participate in multiple internal or proprietary repositories. An autonomous agent running in Project A could inadvertently (or maliciously) read, index, or exfiltrate source code from Project B under `$HOME/src/...`.
+2. **Credential Theft & Accidental Host Damage:** Unintended reading or modification of sensitive keys (`~/.ssh`, `~/.aws`, `~/.gnupg`, browser cookies, API tokens, shell histories).
+3. **Persistence Vector Planting:** Placing autostart scripts (`~/.config/autostart`, systemd user units) to gain persistence on user login.
+
+`bwrun` delivers a massive security upgrade over direct host execution without incurring container virtualization overhead.
 
 ---
 
 ## 2. Product Vision & Goals
 
 ### 2.1 Vision
-Enable developers to run any AI agent or untrusted CLI tool as effortlessly as running it on the host, with rock-solid security boundaries automatically established by semantic awareness.
+Enable developers to run any AI agent or untrusted CLI tool as effortlessly as running it on the host, with rock-solid practical security boundaries automatically established by semantic awareness.
 
 ### 2.2 Goals
 1. **Zero-Configuration Usability:** Running `bwrun -- <cmd>` works out of the box for standard development workflows without manual sandbox configuration.
-2. **Semantic Layering:** Automatically classify paths into Base, Config, and User layers with secure-by-default access policies.
+2. **Semantic Layering & Scoped Visibility:** Automatically classify paths into Base, Config, and User layers. The host root (`/`) is visible read-only to ensure host toolchains function seamlessly, while the host `$HOME` is masked with strict, fine-grained access policies.
 3. **Built-in Tool Catalog:** Pre-package knowledge of legacy and non-XDG paths (e.g., `~/.npm`, `~/.cargo`, `~/.nvm`, `~/.gitconfig`, AI agent directories) so developers don't have to manually locate and configure tool files.
 4. **Hierarchical Configuration & Project Sandbox Overlays:** Allow project-level and user-level overrides, including project sandbox overlays (e.g., automatically mapping project-specific isolated credentials under `.bwrun/sandbox/` over `~/.ssh`).
 5. **High Performance & Portability:** Single static Go binary with negligible startup latency.
 
 ### 2.3 Non-Goals
+* Hypervisor-level virtualization or kernel-level anomaly detection (does not defend against kernel privilege-escalation exploits).
 * Re-implementing a container daemon or image management system (Docker/OCI alternative).
+* Complete isolation of host system root binaries (host `/usr`, `/bin`, `/lib`, and `/etc` are intentionally shared read-only for frictionless runtime reuse).
 * Non-Linux OS support in the initial phase (bubblewrap relies on Linux user namespaces).
-* Hypervisor-level virtualization or kernel-level anomaly detection.
 
 ---
 
@@ -114,12 +123,11 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
     ]
   },
   "env": {
-    "pass": [
-      "PATH",
-      "TERM",
-      "LANG"
+    "pass": [],
+    "deny": [
+      "AWS_SECRET_ACCESS_KEY",
+      "GITHUB_TOKEN"
     ],
-    "deny": [],
     "set": {
       "CI": "true"
     }
@@ -128,7 +136,11 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
 ```
 
 ### 4.3 Built-in Tool Catalog
-`bwrun` comes with a built-in catalog of ecosystem and runtime paths. This catalog is authored and curated with the assistance of AI analysis across various language and agent ecosystems, and embedded directly into the runner.
+`bwrun` comes with a built-in catalog of ecosystem and runtime paths. This catalog is authored and curated with the assistance of AI analysis across various language and agent ecosystems, and embedded into the runner as a declarative data structure.
+
+To ensure long-term maintainability without burdening developers:
+* **Declarative Separation:** Catalog rules are maintained as declarative definitions (e.g. embedded JSON/data structs) separate from execution logic, keeping updates frictionless as tool paths change.
+* **Extensibility & Overrides:** While standard runtimes are embedded for single-binary zero-configuration execution, Phase 2 introduces support for loading user-defined catalog additions (e.g., from `~/.config/bwrun/catalog.d/`) so users can define rules for proprietary or emerging tools without recompiling the runner.
 
 To relieve developers from mapping dozens of non-XDG paths manually, `bwrun` discovers existing top-level dotfiles and dotdirectories and mounts them read-only, then applies this built-in catalog for common caches and state:
 * **Node.js / JavaScript:** `~/.npm`, `~/.pnpm-store`, `~/.yarn` writable; `~/.nvm` and tool configuration read-only.
@@ -150,22 +162,25 @@ The catalog also denies common secret paths such as `~/.ssh`, `~/.gnupg`, `~/.aw
 ### 5.2 Usage Syntax
 ```bash
 bwrun init
-bwrun [flags] -- <command> [args...]
-# A command may also follow directly, for example: bwrun bash
+bwrun [flags] [--] <command> [args...]
 ```
+
+Use `--` before the command if it takes option flags (starting with `-`), ensuring they are not parsed as `bwrun` options. Commands without flags (for example, `bwrun bash`) can be specified directly without `--`.
 
 `bwrun init` creates a starter `.bwrun.json` in the current directory and never overwrites an existing file. The template starts with empty path and environment rules; developers add only the permissions their project needs.
 
 #### Examples:
 ```bash
 # Run Goose agent safely in the current project
-bwrun -- goose
+bwrun goose
+# Or with flags for the target command
+bwrun -- goose --version
 
 # Run Gemini CLI with extra read-only path
 bwrun --ro ~/docs/shared -- gemini
 
 # Run interactive bash inside the sandboxed environment
-bwrun -- bash
+bwrun bash
 
 # Dry-run to inspect the generated bwrap command line
 bwrun --dry-run -- goose
@@ -198,12 +213,20 @@ bwrun --config ~/.config/bwrun/profiles/agent.json -- goose
 * Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and home paths are hidden except for automatic Config Layer mounts, project sandbox entries, and explicitly allowed paths.
 * Support for project config (`.bwrun.json`) and user global config (`~/.config/bwrun/config.json`).
 * `--dry-run` flag to inspect generated `bwrap` invocation.
+* Actionable child-process execution error intercepting: Detect unprivileged user namespace restrictions (e.g., AppArmor permissions on Ubuntu 24.04+) and output clear resolution hints pointing to `docs/troubleshooting.md`.
 
-### Phase 2: Built-in Catalog & Project Sandbox Overlays
-* Comprehensive built-in catalog for standard runtimes (Node, Python, Go, Rust) and AI CLI tools.
-* Project sandbox overlay support (automatically mapping `.bwrun/sandbox/` paths like `~/.ssh`).
-* Interactive/TUI diagnostic command (`bwrun doctor`) to verify bwrap availability and active mount policies.
+### Phase 2: Data-Driven Catalog, Practical Isolation & Diagnostics
+* Data-Driven Tool Catalog: Modular catalog definition with embedded JSON specifications and external user overrides (`~/.config/bwrun/catalog.d/*.json`).
+* Clean Environment Mode (`--clean-env` / `"inherit": false`): Run with an isolated host environment, selectively passing only explicit variables (`env.pass`) to prevent accidental host secret exfiltration.
+* External Environment File Support (`env_file`): Populate environment variables from specified files (e.g., `.env`) without hardcoding them in configuration.
+* Project Sandbox Overlays: Automatically map project-specific isolated credentials under `.bwrun/sandbox/` over home directories (e.g. `~/.ssh`).
+* Diagnostic and health-check command (`bwrun doctor`):
+  * Verify `bwrap` availability, version, and unprivileged user namespace permissions.
+  * Scan `$HOME` for uncataloged dotpaths to detect untracked sensitive assets and guide additions to `catalog.d/`.
+  * Validate active mount policies and project configurations.
 
-### Phase 3: Advanced Controls & Hooks
-* Fine-grained network filtering/proxy integration.
+### Phase 3: Advanced Controls & Ecosystem Integration
+* Fine-grained network filtering and transparent proxy integration.
 * Pre-exec and post-exec lifecycle hooks.
+* Execution audit logging and structured event tracing.
+* Community catalog sharing and profile repositories.

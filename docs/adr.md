@@ -25,11 +25,18 @@ Accepted
 
 ### Context
 Developers executing AI coding agents (Goose, Gemini CLI, Claude Code, etc.) or untrusted developer tools on host machines face significant risks of accidental host damage or credential leakage (e.g., `~/.ssh`, `~/.aws`). 
-Existing containerization tools like Docker or Podman introduce substantial operational friction:
+
+In practice, determined adversarial agents or zero-day payloads have demonstrated escapes even in virtualized and Docker environments; pursuing absolute containment against sophisticated kernel exploits is impractical for local CLI tools. The primary real-world security challenge developers face daily is **cross-project code leakage and credential theft**:
+- Developers frequently juggle multiple proprietary or sensitive repositories under `$HOME/src/...`.
+- Autonomous AI agents running on the host can unintentionally (or via prompt injection) index, read, or exfiltrate code from unrelated projects or access personal credentials (`~/.ssh`, `~/.aws`, browser cookies).
+- Not all AI providers guarantee zero data retention/training, leading organizations to restrict AI usage.
+
+Existing containerization tools like Docker or Podman introduce substantial operational friction for individual developers:
 - Heavy startup latency.
 - Complicated host tool/runtime sharing (Node, Python, Go, Rust, system packages).
 - Tedious mounting of dotfiles, agent skills, and prompt templates.
-Direct execution on the host is frictionless but unsafe. We need an unprivileged, low-overhead isolation mechanism on Linux that can selectively expose host resources.
+
+Direct execution on the host is frictionless but unsafe. We need an unprivileged, low-overhead isolation mechanism on Linux that can selectively expose host resources and eliminate the primary risk of accidental cross-project leakage without container management overhead.
 
 ### Decision
 Use `bubblewrap` (`bwrap`) as the underlying sandboxing engine. `bwrun` will serve as an intelligent, automated wrapper around `bwrap`, translating high-level semantic rules into low-level bubblewrap command-line invocations.
@@ -86,21 +93,23 @@ Manually mapping filesystem paths for bubblewrap is error-prone. A developer oft
 At the same time, sensitive personal files (`~/.ssh`, `~/.gnupg`, `~/.aws`, other projects) must remain strictly hidden.
 
 ### Decision
-Adopt a three-tier semantic layering model (Base Layer, Config Layer, User Layer) as defined authoritatively in `docs/prd.md` (Section 3).
-1. **Base Layer (System Infrastructure):** Host root filesystem (`/`) is visible at its normal paths and read-only. `/dev` and `/proc` are instantiated by bwrap, and `/tmp` is private temporary storage.
-2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG roots and known package caches receive Read-Write mounts; known credential and history paths are denied.
-3. **User Layer (Workspace & Personal Data):** The host `$HOME` is masked at its original path, then selectively repopulated. The Current Working Directory (CWD) is mounted Read-Write (`--bind`); Config Layer mounts, project sandbox entries, and explicitly permitted paths are visible. Other home contents remain hidden.
+Adopt a three-tier semantic layering model (Base Layer, Config Layer, User Layer) and Project Sandbox Overlays.
+* **Base Layer:** Host root (`/`) is visible read-only; `/dev` and `/proc` are instantiated by bwrap; `/tmp` is private.
+* **Config Layer:** Top-level dotfiles/dotdirectories are mounted read-only by default; standard XDG paths and package caches are writable; known credentials and persistence vectors are denied.
+* **User Layer:** The host `$HOME` is masked at its original path; the Current Working Directory (CWD) is mounted read-write (`--bind`), with runner configurations protected as read-only.
+* **Project Sandbox Overlays:** Project-specific isolated credentials under `.bwrun/sandbox/` automatically overlay sensitive home paths (e.g. `~/.ssh`).
 
-Additionally, support **Project Sandbox Overlays** (`.bwrun/sandbox/`) to allow substituting sensitive target paths (e.g., placing project-specific keys under `.bwrun/sandbox/.ssh` to overlay `~/.ssh`). See `docs/prd.md` Section 3.4 for complete behavioral specifications.
+For complete, authoritative specifications of the layering rules, catalog entries, and precedence, see `docs/prd.md` Section 3.
 
 ### Consequences
 #### Positive
-- Writable access is limited to the project working directory, automatically writable XDG directories and known caches, project sandbox entries, and explicitly writable paths; the rest of the host root remains read-only.
-- Automatically exposed dotfiles remain readable; those without a more specific writable rule are protected from tampering or deletion.
-- Known credential and history paths are denied within automatically exposed home paths; unrelated home contents remain hidden.
+* Writable access is confined strictly to the project working directory, auto-writable XDG directories/caches, project sandbox entries, and explicit rules.
+* Automatically exposed dotfiles remain readable while being protected against tampering or deletion.
+* Known credential and persistence paths remain hidden; unrelated home repositories and personal files remain invisible.
+* Prevents cross-project source code leakage and sensitive credential compromise.
 
 #### Negative
-- Tools that insist on writing state to non-cache dotfiles in `$HOME` may fail unless explicitly configured in user/project configs.
+* Tools requiring write access to legacy non-cache paths under `$HOME` require explicit configuration.
 
 ---
 
@@ -141,21 +150,23 @@ Accepted
 
 ### Context
 `bwrap` fails with an immediate fatal error if an argument specifies a nonexistent source path (e.g. `--ro-bind ~/.cargo ~/.cargo` when Rust is not installed).
-The built-in catalog will contain a predefined, hardcoded list of common tools and dotfiles (Node, Rust, Go, Python, AI agents like Goose/Gemini). However, individual developer environments differ significantly and only a subset of these paths exist on any given machine.
+The built-in catalog will contain a predefined list of common tools and dotfiles (Node, Rust, Go, Python, AI agents like Goose/Gemini). However:
+1. Individual developer environments differ significantly, and only a subset of these paths exist on any given machine.
+2. Hardcoding catalog paths tightly into Go control flow creates maintenance debt as the ecosystem of developer tools and AI agents evolves.
 
 ### Decision
-`bwrun` will evaluate all candidate mount paths at runtime:
-1. Maintain an internal built-in catalog of well-known runtime and agent paths (see `docs/prd.md` Section 4.3).
-2. Expand paths (resolving `~` and environment variables).
-3. Check path existence on the host filesystem (`os.Stat` / `os.Lstat`).
-4. Dynamically append only verified, existing paths as `--ro-bind` or `--bind` arguments to the `bwrap` command. Paths that do not exist on the host are skipped silently without causing execution errors.
-5. In future phases, consider heuristics or LLM-assisted evaluation for unknown dotfiles/directories in `$HOME`.
+`bwrun` will evaluate all candidate mount paths at runtime while decoupling catalog knowledge from path resolution:
+1. **Declarative Catalog Representation:** Structure catalog entries as declarative data (e.g., embedded JSON or declarative structs), keeping semantic rules cleanly separated from bwrap invocation logic.
+2. **Runtime Existence Evaluation:** Expand paths (resolving `~` and environment variables) and check existence on the host filesystem (`os.Stat` / `os.Lstat`). Dynamically append only verified, existing paths as `--ro-bind` or `--bind` arguments to the `bwrap` command. Nonexistent paths are skipped silently.
+3. **Future Extensibility:** Design catalog interfaces to allow loading external catalog definitions (e.g., from `~/.config/bwrun/catalog.d/` or remote data updates) and user-defined catalog overrides without requiring binary recompilation.
+4. **Diagnostic Guidance (`bwrun doctor`):** Rather than performing non-deterministic runtime heuristics or LLM evaluation for unrecognized dotfiles/directories in `$HOME`, provide a deterministic diagnostic command (`bwrun doctor`). It reports uncataloged dotpaths and guides users to configure them via `catalog.d/` or configuration files if specific permissions (e.g., write access for caches or explicit denials for secrets) are required.
 
 ### Consequences
 #### Positive
 - Prevents `bwrap` failure caused by missing catalog entries.
 - Out-of-the-box functionality across diverse machine setups without requiring user intervention.
 - Clean separation between catalog knowledge (declarative listing) and execution planning (dynamic path resolution).
+- Facilitates external catalog data maintenance and user-defined catalog extensions as new tools emerge.
 
 #### Negative
 - Minor filesystem stat overhead at startup (negligible for dozens of paths in local filesystem cache).
@@ -230,13 +241,14 @@ Modern AI agents, developer tools, and language runtimes rely extensively on hos
 Filtering environment variables via a strict whitelist by default introduces high configuration friction, breaking the "zero-configuration" developer experience of running `bwrun <command>` seamlessly out of the box.
 
 ### Decision
-Inherit all host environment variables by default.
-Provide explicit configuration to deny or override specific environment variables:
-1. **Default Pass-through:** Host environment variables that are set are passed to the sandboxed process.
-2. **Explicit Deny (`env.deny`):** Allow users to intentionally filter out sensitive environment variables (e.g., cloud credentials, deployment tokens) via `.bwrun.json`.
-3. **Explicit Pass (`env.pass`):** Retain the option to name variables for clarity; set host values are already inherited by default.
-4. **Explicit Override (`env.set`):** Apply explicit values after filtering inherited host variables with `env.deny`. A name listed in both uses its `env.set` value, including an empty string. Denials from any configuration layer filter host inheritance only; explicit set values follow configuration-layer precedence.
-5. **Mandatory Runtime Variables:** `bwrun` always guarantees essential sandbox environment variables (such as setting `HOME` to the sandbox home path and `BWRUN_SANDBOX=1`).
+Inherit host environment variables by default while providing granular deny and override controls:
+1. **Default Pass-through:** Set host environment variables are inherited automatically.
+2. **Explicit Deny (`env.deny`):** Filter out sensitive environment variables (cloud credentials, deployment tokens, etc.).
+3. **Explicit Pass (`env.pass`):** Explicitly retain specific environment variables.
+4. **Explicit Override (`env.set`):** Set or override environment variables.
+5. **Mandatory Variables:** `bwrun` guarantees essential sandbox variables (e.g., `HOME` and `BWRUN_SANDBOX=1`).
+
+For detailed precedence and resolution behavior, see `docs/prd.md` Section 4.1. Note: To further support tool-scoped profiles and prevent secret exfiltration, a strict non-inheriting clean environment mode (`--clean-env`) and external environment files (`env_file`) are planned for Phase 2.
 
 ### Consequences
 #### Positive
@@ -246,6 +258,10 @@ Provide explicit configuration to deny or override specific environment variable
 
 #### Negative
 - Host secrets stored in environment variables (e.g., accidental export of tokens in a shell session) are visible to the sandboxed process unless explicitly listed in `env.deny`.
+
+#### Future Considerations
+- **External Environment Files (`env_file`):** Support referencing dedicated external environment files (e.g. `.env`) rather than inlining values directly in JSON configurations.
+- **External Secret Management Integration:** Rather than embedding complex encryption/decryption logic into `bwrun` itself, keep the core focused on isolation and recommend standard secret managers or encryption tools (such as `sops`, `vault`, or `direnv`) to populate the environment prior to `bwrun` execution.
 
 ---
 
