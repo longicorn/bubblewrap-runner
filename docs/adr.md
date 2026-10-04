@@ -86,12 +86,12 @@ Manually mapping filesystem paths for bubblewrap is error-prone. A developer oft
 At the same time, sensitive personal files (`~/.ssh`, `~/.gnupg`, `~/.aws`, other projects) must remain strictly hidden.
 
 ### Decision
-Adopt a three-tier semantic layering model:
-1. **Base Layer (System Infrastructure):** The host root filesystem (`/`) is visible at its normal paths and read-only. `/dev` and `/proc` are instantiated by bwrap, and `/tmp` is private temporary storage.
-2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG config/cache/data/state roots and known package caches receive Read-Write mounts; known credential and history paths are denied.
-3. **User Layer (Workspace & Personal Data):** The host `$HOME` is masked at its original path, then selectively repopulated. The Current Working Directory (CWD) is mounted Read-Write (`--bind`); the Config Layer's automatic dotfile, XDG, and cache mounts, project sandbox entries, and explicitly permitted paths are also visible. Other home contents remain hidden.
+Adopt a three-tier semantic layering model (Base Layer, Config Layer, User Layer) as defined authoritatively in `docs/prd.md` (Section 3).
+1. **Base Layer (System Infrastructure):** Host root filesystem (`/`) is visible at its normal paths and read-only. `/dev` and `/proc` are instantiated by bwrap, and `/tmp` is private temporary storage.
+2. **Config Layer (Developer Tools & Dotfiles):** Existing top-level dotfiles and dotdirectories are mounted Read-Only by default. XDG roots and known package caches receive Read-Write mounts; known credential and history paths are denied.
+3. **User Layer (Workspace & Personal Data):** The host `$HOME` is masked at its original path, then selectively repopulated. The Current Working Directory (CWD) is mounted Read-Write (`--bind`); Config Layer mounts, project sandbox entries, and explicitly permitted paths are visible. Other home contents remain hidden.
 
-Additionally, support **Shadow Mounts** to allow substituting sensitive target paths (e.g., replacing real `~/.ssh` with isolated dummy or project-specific keys).
+Additionally, support **Project Sandbox Overlays** (`.bwrun/sandbox/`) to allow substituting sensitive target paths (e.g., placing project-specific keys under `.bwrun/sandbox/.ssh` to overlay `~/.ssh`). See `docs/prd.md` Section 3.4 for complete behavioral specifications.
 
 ### Consequences
 #### Positive
@@ -121,6 +121,8 @@ Configuration resolution follows a strict hierarchy (highest to lowest):
 3. User Global Configuration (`~/.config/bwrun/config.json`)
 4. Built-in Semantic Rules & Catalog Defaults
 
+For complete details on configuration schema, flag precedence, and path resolution rules, see `docs/prd.md` Section 4.
+
 ### Consequences
 #### Positive
 - Zero external package dependencies for configuration parsing in Go.
@@ -143,7 +145,7 @@ The built-in catalog will contain a predefined, hardcoded list of common tools a
 
 ### Decision
 `bwrun` will evaluate all candidate mount paths at runtime:
-1. Maintain an internal curated catalog of well-known runtime and agent paths.
+1. Maintain an internal built-in catalog of well-known runtime and agent paths (see `docs/prd.md` Section 4.3).
 2. Expand paths (resolving `~` and environment variables).
 3. Check path existence on the host filesystem (`os.Stat` / `os.Lstat`).
 4. Dynamically append only verified, existing paths as `--ro-bind` or `--bind` arguments to the `bwrap` command. Paths that do not exist on the host are skipped silently without causing execution errors.
