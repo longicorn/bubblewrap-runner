@@ -208,6 +208,8 @@ bwrun --config ~/.config/bwrun/profiles/agent.json -- goose
 ## 7. Roadmap & Phased Implementation
 
 ### Phase 1: MVP (Core Runner)
+**Status: Complete (2026-10-04).** The scope below is implemented. Unit tests and a real-`bwrap` integration test cover the core isolation boundary; further improvements can continue in later phases before a v1 release.
+
 * CLI with `bwrun [flags] -- <command>` and the convenient `bwrun <command>` form.
 * `bwrun init` to create a project configuration template without overwriting existing settings.
 * Automatic generation of Base Layer, Config Layer, and User Layer. The host `/` is visible read-only, the starting directory is RW, and home paths are hidden except for automatic Config Layer mounts, project sandbox entries, and explicitly allowed paths.
