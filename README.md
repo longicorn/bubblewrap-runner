@@ -13,8 +13,8 @@
 ## Prerequisites & Installation
 
 ### Prerequisites
-* **Operating System:** Linux with unprivileged user namespaces enabled.
-* **Bubblewrap:** `bwrap` must be installed on your host system (e.g., `sudo apt install bubblewrap` or `pacman -S bubblewrap`).
+* **Operating System:** Linux with unprivileged user namespaces enabled. (If you encounter permission issues on Ubuntu 24.04+ or systems with AppArmor restrictions, see [Troubleshooting](docs/troubleshooting.md)).
+* **Bubblewrap:** `bwrap` must be installed on your host system.
 
 ### Installation
 Build the single static binary with Go:
@@ -122,4 +122,5 @@ The host environment is still inherited unless names are listed in `env.deny`. E
 For authoritative and detailed specifications:
 - [Product Requirements Document (PRD)](docs/prd.md): Comprehensive specifications on filesystem layering, configuration schema, environment precedence, and the built-in tool catalog.
 - [Architecture Decision Records (ADR)](docs/adr.md): Architectural decisions and rationale covering Bubblewrap adoption, security hardening, process execution, and configuration resolution.
+- [Troubleshooting & Common Issues](docs/troubleshooting.md): Solutions for unprivileged user namespace restrictions (AppArmor / Ubuntu 24.04+) and common setup issues.
 
