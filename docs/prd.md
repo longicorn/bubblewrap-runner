@@ -21,8 +21,8 @@ Enable developers to run any AI agent or untrusted CLI tool as effortlessly as r
 ### 2.2 Goals
 1. **Zero-Configuration Usability:** Running `bwrun -- <cmd>` works out of the box for standard development workflows without manual sandbox configuration.
 2. **Semantic Layering:** Automatically classify paths into Base, Config, and User layers with secure-by-default access policies.
-3. **Smart Ecosystem Catalog:** Pre-package knowledge of legacy and non-XDG paths (e.g., `~/.npm`, `~/.cargo`, `~/.nvm`, `~/.gitconfig`, AI agent directories) so developers don't have to manually locate and configure tool files.
-4. **Hierarchical Configuration & Shadow Injection:** Allow project-level and user-level overrides, including shadow mounts (e.g., mapping project-specific isolated credentials over `~/.ssh`).
+3. **Built-in Tool Catalog:** Pre-package knowledge of legacy and non-XDG paths (e.g., `~/.npm`, `~/.cargo`, `~/.nvm`, `~/.gitconfig`, AI agent directories) so developers don't have to manually locate and configure tool files.
+4. **Hierarchical Configuration & Project Sandbox Overlays:** Allow project-level and user-level overrides, including project sandbox overlays (e.g., automatically mapping project-specific isolated credentials under `.bwrun/sandbox/` over `~/.ssh`).
 5. **High Performance & Portability:** Single static Go binary with negligible startup latency.
 
 ### 2.3 Non-Goals
@@ -75,9 +75,9 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 * **Explicit Whitelists:** Paths explicitly permitted in configuration can be exposed as Read-Only or Read-Write.
 * A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory, the Config Layer's automatic mounts, project sandbox entries, and paths explicitly allowed by policy; other host home contents remain hidden.
 
-### 3.4 Shadow / Injection Mounts (Credential & Config Isolation)
-* Secure sandbox substitution: Instead of exposing host sensitive paths (such as `~/.ssh` or environment variables), users can define isolated project-specific credentials.
-* Default project overlay: entries directly inside the nearest project `.bwrun/sandbox/` directory are automatically mounted Read-Write into the sandbox home at the same relative paths. For example, `.bwrun/sandbox/.ssh` is mounted at `~/.ssh`, enabling git over SSH with project-specific keys while keeping host keys hidden. Explicit project or CLI mount rules can override the automatic mapping.
+### 3.4 Project Sandbox Overlays (Credential & Config Isolation)
+* Secure sandbox substitution: Instead of exposing host sensitive paths (such as `~/.ssh` or environment variables), users can define isolated project-specific credentials and configurations.
+* Default project overlay: Entries directly inside the nearest project `.bwrun/sandbox/` directory are automatically mounted Read-Write into the sandbox home at the same relative paths. For example, `.bwrun/sandbox/.ssh` is mounted at `~/.ssh`, enabling git over SSH with project-specific keys while keeping host keys hidden. Explicit project or CLI mount rules can override the automatic mapping.
 
 ---
 
@@ -88,7 +88,7 @@ Configuration is resolved in the following priority order (highest to lowest):
 1. **Command Line Flags:** Explicit runtime arguments (e.g., `--rw <path>`, `--ro <path>`, `--deny <path>`).
 2. **Project-level Configuration:** `<project-root>/.bwrun.json`.
 3. **User Global Configuration:** `~/.config/bwrun/config.json`.
-4. **Built-in Semantic Rules & Catalog:** Hardcoded defaults and AI-curated tool path catalog.
+4. **Built-in Semantic Rules & Catalog:** Hardcoded defaults and built-in tool path catalog.
 
 When `--config <file>` is given, only that file is used as the configuration layer. The global and nearest-project configuration files are not discovered, and nearest-project `.bwrun/sandbox/` entries are not injected. Built-in semantic rules and CLI flags still apply. The file must exist and must not be a symbolic link. Relative `--config` paths are resolved from the starting directory, while relative paths inside the file are resolved from the file's directory. The selected file is hidden inside the sandbox to prevent changes to the policy for later runs.
 
@@ -113,12 +113,6 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
       "~/.config/gcloud"
     ]
   },
-  "shadow": [
-    {
-      "target": "~/.ssh",
-      "source": ".bwrun/sandbox/ssh"
-    }
-  ],
   "env": {
     "pass": [
       "PATH",
@@ -133,8 +127,10 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
 }
 ```
 
-### 4.3 AI-Curated Tool Catalog
-To relieve developers from mapping dozens of non-XDG paths manually, `bwrun` discovers existing top-level dotfiles and dotdirectories and mounts them read-only, then applies a built-in writable-path catalog for common caches and state:
+### 4.3 Built-in Tool Catalog
+`bwrun` comes with a built-in catalog of ecosystem and runtime paths. This catalog is authored and curated with the assistance of AI analysis across various language and agent ecosystems, and embedded directly into the runner.
+
+To relieve developers from mapping dozens of non-XDG paths manually, `bwrun` discovers existing top-level dotfiles and dotdirectories and mounts them read-only, then applies this built-in catalog for common caches and state:
 * **Node.js / JavaScript:** `~/.npm`, `~/.pnpm-store`, `~/.yarn` writable; `~/.nvm` and tool configuration read-only.
 * **Rust:** `~/.cargo` read-only except `registry` and `git` caches; `~/.rustup` read-only.
 * **Python:** runtime/configuration paths such as `~/.pyenv`, `~/.virtualenvs`, and `~/.pip` read-only; XDG caches writable.
@@ -203,9 +199,9 @@ bwrun --config ~/.config/bwrun/profiles/agent.json -- goose
 * Support for project config (`.bwrun.json`) and user global config (`~/.config/bwrun/config.json`).
 * `--dry-run` flag to inspect generated `bwrap` invocation.
 
-### Phase 2: Built-in Catalog & Shadow Mounts
+### Phase 2: Built-in Catalog & Project Sandbox Overlays
 * Comprehensive built-in catalog for standard runtimes (Node, Python, Go, Rust) and AI CLI tools.
-* Shadow mount support (substituting paths like `~/.ssh`).
+* Project sandbox overlay support (automatically mapping `.bwrun/sandbox/` paths like `~/.ssh`).
 * Interactive/TUI diagnostic command (`bwrun doctor`) to verify bwrap availability and active mount policies.
 
 ### Phase 3: Advanced Controls & Hooks
