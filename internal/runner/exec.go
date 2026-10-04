@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"unsafe"
 )
 
 const maxCapturedStderr = 64 * 1024
@@ -45,7 +46,13 @@ func runChild(bwrap string, sandbox plan) (int, error) {
 	cmd := exec.Command(bwrap, sandbox.args...)
 	cmd.Env = sandbox.env
 	var stderr limitedCapture
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, io.MultiWriter(os.Stderr, &stderr)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	// Bash checks whether stderr is a terminal before enabling interactive mode.
+	// A MultiWriter makes os/exec replace it with a pipe, even when the user
+	// started bwrun from a terminal.
+	if !isTerminal(os.Stderr) {
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	}
 	files := make([]*os.File, 0, sandbox.fileCount)
 	defer func() {
 		for _, file := range files {
@@ -94,6 +101,12 @@ func runChild(bwrap string, sandbox plan) (int, error) {
 		}
 	}
 	return 1, fmt.Errorf("wait for bubblewrap: %w", err)
+}
+
+func isTerminal(file *os.File) bool {
+	var termios syscall.Termios
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&termios)))
+	return errno == 0
 }
 
 func shellJoin(args []string) string {
