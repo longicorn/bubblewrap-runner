@@ -50,9 +50,13 @@ Project-local home files can be supplied without adding mount entries: put them 
 Install Bubblewrap (`bwrap`) on Linux, then build with `go build ./cmd/bwrun`.
 Host environment variables are inherited by default. Use `env.deny` to filter sensitive variables, `env.pass` to explicitly pass a variable, or `env.set` to set or override a value. To use a tool installed under the home directory, add its binary directory to `mounts.ro` (or `mounts.rw` if it needs to write there).
 
-## Reusable launch profiles
+## Tool-specific environment profiles
 
-Exporting a token from `.bashrc` makes it available to every command started by that shell. Directory-based shell hooks can narrow the scope, but require configuration in each working tree. For tools that may run from many directories, keep a private bwrun configuration file outside the projects and select it at launch:
+Managing sensitive tokens and environment variables often falls between two extremes:
+* **Shell-wide exports (`~/.bashrc` / `~/.zshrc`):** Exposes credentials and API tokens to every process launched in that shell session.
+* **Directory-based environment managers (e.g., `direnv`, `.env` loaders):** Tie environment variables to specific working directories, making them awkward for general-purpose developer tools and AI agents invoked from arbitrary locations. Furthermore, they only manage environment variables without restricting filesystem access.
+
+`bwrun` functions as a **tool-scoped environment manager** alongside filesystem sandboxing. It lets you isolate and inject environment variables exclusively for a target command, without leaking secrets across directories or exposing them to other processes. For tools you invoke across multiple projects, maintain a private environment profile outside project trees and select it at launch:
 
 ```sh
 # ~/.config/bwrun/profiles/agent.json
