@@ -17,7 +17,7 @@ func initializeProject() error {
 		Schema:  "https://json-schema.org/draft/2020-12/schema",
 		Version: "1",
 		Network: "allow",
-		Mounts:  MountConfig{RO: []string{}, RW: []string{}, Deny: []string{}},
+		Mounts:  MountConfig{RO: []string{}, RW: []RWMount{}, Deny: []string{}},
 		Env:     EnvConfig{Pass: []string{}, Deny: []string{}, Set: map[string]string{}},
 	}
 	data, err := json.MarshalIndent(config, "", "  ")

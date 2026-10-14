@@ -23,6 +23,7 @@ func (s *stringList) Set(value string) error {
 type options struct {
 	ro, rw, deny stringList
 	configPath   string
+	sandboxDir   string
 	dryRun       bool
 	noNet        bool
 }
@@ -45,6 +46,13 @@ func Main(args []string) (int, error) {
 	fs.Var(&opts.rw, "rw", "expose a host path read-write (repeatable)")
 	fs.Var(&opts.deny, "deny", "hide a host path (repeatable)")
 	fs.StringVar(&opts.configPath, "config", "", "use only this configuration file (instead of discovering global and project files)")
+	fs.Func("sandbox-dir", "mount entries from this directory into HOME (also with --config)", func(value string) error {
+		if strings.TrimSpace(value) == "" {
+			return errors.New("sandbox directory must not be empty")
+		}
+		opts.sandboxDir = value
+		return nil
+	})
 	fs.BoolVar(&opts.dryRun, "dry-run", false, "print the generated bubblewrap command")
 	fs.BoolVar(&opts.noNet, "no-net", false, "disable network access")
 	if err := fs.Parse(args); err != nil {

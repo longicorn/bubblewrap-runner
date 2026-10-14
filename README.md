@@ -49,6 +49,50 @@ fi
 
 Project-local home files can be supplied without adding mount entries: put them under `.bwrun/sandbox/` using their home-relative paths. For example, `.bwrun/sandbox/.ssh` is mounted read-write at `~/.ssh`; any existing entries directly under `.bwrun/sandbox/` are mounted the same way automatically. Explicit project or command-line mount rules can override these defaults.
 
+To select a home overlay directory explicitly, use `--sandbox-dir <dir>` or the top-level `"sandbox-dir"` configuration key. This also works with `--config`:
+
+```sh
+bwrun --config ~/.config/bwrun/profiles/agent.json \
+      --sandbox-dir .bwrun/sandbox -- bash
+```
+
+Alternatively, select a directory in the profile itself:
+
+```json
+{
+  "version": "1",
+  "sandbox-dir": ".bwrun/sandbox"
+}
+```
+
+With this profile, `.bwrun/sandbox/.ssh/config` under the starting directory appears as `~/.ssh/config` inside the sandbox, regardless of where `agent.json` is stored. Direct child entries replace the corresponding home paths and are writable; directories are mounted as a whole rather than merged with host contents. The CLI option overrides the configuration key; project configuration overrides global configuration. An explicit directory replaces automatic project sandbox discovery and must exist and be a directory. It must not contain the configuration file selected by `--config`, so that the file cannot be exposed through a writable home alias.
+
+Relative `sandbox-dir` paths are always resolved from the starting directory, both on the CLI and in any configuration file. `~` and host environment variables are expanded.
+
+To share a host tool directory while keeping only its session history in the project, use a source/target object in `mounts.rw`:
+
+```sh
+mkdir -p .bwrun/sandbox/.copilot/session-state
+```
+
+```json
+{
+  "mounts": {
+    "rw": [
+      "~/.copilot",
+      {
+        "source": ".bwrun/sandbox/.copilot/session-state",
+        "target": "~/.copilot/session-state"
+      }
+    ]
+  }
+}
+```
+
+The host `.copilot` remains available, but `session-state` is replaced by the project directory. Existing host sessions are hidden; new sessions persist under `.bwrun/sandbox/.copilot/session-state` across runs. This works with either `.bwrun.json` or a profile selected by `--config`, without requiring `sandbox-dir`.
+
+String entries keep their existing meaning and path bases. In source/target objects, both relative paths are resolved from the starting directory, even when the configuration file is elsewhere. `~` and host environment variables are expanded. The source must already exist; the target may be absent. Parents are mounted before children, regardless of array order. Layer precedence and explicit CLI rules still apply to the same destination. A source cannot expose a runner policy file through a writable alias, and an existing target must have the same file/directory type as the source and cannot be a symbolic link.
+
 ```json
 {
   "version": "1",
@@ -113,7 +157,7 @@ Managing sensitive tokens and environment variables often falls between two extr
 alias myagent='bwrun --config ~/.config/bwrun/profiles/agent.json -- myagent'
 ```
 
-`--config` loads only the named configuration file; it does not load the usual global or nearest-project configuration, or the nearest project's `.bwrun/sandbox/` entries. Built-in mount rules and command-line flags still apply. A relative `--config` path is resolved from the starting directory; paths inside that file are resolved from the file's directory. The file must exist and cannot be a symbolic link. The selected file is hidden inside the sandbox so the launched command cannot change the policy for a later run.
+`--config` loads only the named configuration file; it does not load the usual global or nearest-project configuration, or automatically discover the nearest project's `.bwrun/sandbox/` entries. To mount home overlay entries with `--config`, explicitly select their directory using `--sandbox-dir` or the profile's `"sandbox-dir"` key, or map specific paths using source/target objects in `mounts.rw`. Built-in mount rules and command-line flags still apply. A relative `--config` path is resolved from the starting directory; string mount paths inside that file are resolved from the file's directory. Relative `sandbox-dir` paths and source/target object paths are resolved from the starting directory. The file must exist and cannot be a symbolic link. The selected file is hidden inside the sandbox so the launched command cannot change the policy for a later run.
 
 The host environment is still inherited unless names are listed in `env.deny`. Explicit `env.set` values apply after this filtering: a name listed in both uses the configured value, including an empty string. Across configuration layers, `env.deny` filters host inheritance only; `env.set` values follow configuration-layer precedence. `env.set` values are stored as plain text, so keep files containing secrets private (for example, mode `0600`) and out of version control. `env.deny` filters the initial environment only: an interactive shell can export the same name again from its startup files. Remove sensitive exports from `.bashrc` when using this pattern.
 
@@ -123,4 +167,3 @@ For authoritative and detailed specifications:
 - [Product Requirements Document (PRD)](docs/prd.md): Comprehensive specifications on filesystem layering, configuration schema, environment precedence, and the built-in tool catalog.
 - [Architecture Decision Records (ADR)](docs/adr.md): Architectural decisions and rationale covering Bubblewrap adoption, security hardening, process execution, and configuration resolution.
 - [Troubleshooting & Common Issues](docs/troubleshooting.md): Solutions for unprivileged user namespace restrictions (AppArmor / Ubuntu 24.04+) and common setup issues.
-
