@@ -9,7 +9,7 @@ import (
 )
 
 func TestMainArgumentErrors(t *testing.T) {
-	for _, args := range [][]string{{}, {"--unknown"}, {"init", "extra"}} {
+	for _, args := range [][]string{{}, {"--unknown"}, {"init", "extra"}, {"--sandbox-dir", "", "bash"}, {"--sandbox-dir", " ", "bash"}} {
 		code, err := Main(args)
 		if err == nil || code != 2 {
 			t.Errorf("Main(%v) = %d, %v; want usage error", args, code, err)

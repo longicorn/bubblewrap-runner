@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,9 +10,52 @@ import (
 )
 
 type MountConfig struct {
-	RO   []string `json:"ro"`
-	RW   []string `json:"rw"`
-	Deny []string `json:"deny"`
+	RO   []string  `json:"ro"`
+	RW   []RWMount `json:"rw"`
+	Deny []string  `json:"deny"`
+}
+
+// RWMount retains the string form for same-path mounts and accepts a
+// source/target object when a writable path needs a different destination.
+type RWMount struct {
+	Path   string `json:"-"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+func (m *RWMount) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) > 0 && data[0] == '"' {
+		var path string
+		if err := json.Unmarshal(data, &path); err != nil {
+			return err
+		}
+		*m = RWMount{Path: path}
+		return nil
+	}
+	if len(data) == 0 || data[0] != '{' {
+		return fmt.Errorf("mounts.rw entries must be paths or source/target objects")
+	}
+	type binding RWMount
+	var value binding
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("mounts.rw binding: %w", err)
+	}
+	if strings.TrimSpace(value.Source) == "" || strings.TrimSpace(value.Target) == "" {
+		return fmt.Errorf("mounts.rw binding requires non-empty source and target")
+	}
+	*m = RWMount(value)
+	return nil
+}
+
+func (m RWMount) MarshalJSON() ([]byte, error) {
+	if m.Source == "" && m.Target == "" {
+		return json.Marshal(m.Path)
+	}
+	type binding RWMount
+	return json.Marshal(binding(m))
 }
 
 type EnvConfig struct {
@@ -21,16 +65,18 @@ type EnvConfig struct {
 }
 
 type Config struct {
-	Schema  string      `json:"$schema,omitempty"`
-	Version string      `json:"version"`
-	Network string      `json:"network"`
-	Mounts  MountConfig `json:"mounts"`
-	Env     EnvConfig   `json:"env"`
+	Schema     string      `json:"$schema,omitempty"`
+	Version    string      `json:"version"`
+	Network    string      `json:"network"`
+	SandboxDir string      `json:"sandbox-dir,omitempty"`
+	Mounts     MountConfig `json:"mounts"`
+	Env        EnvConfig   `json:"env"`
 }
 
 type configLayer struct {
 	config Config
 	base   string
+	path   string
 	rank   int
 }
 
@@ -55,7 +101,7 @@ func loadConfigLayers(cwd, home string) ([]configLayer, error) {
 	if cfg, ok, err := readConfig(globalFile); err != nil {
 		return nil, err
 	} else if ok {
-		layers = append(layers, configLayer{config: cfg, base: home, rank: 1})
+		layers = append(layers, configLayer{config: cfg, base: home, path: globalFile, rank: 1})
 	}
 
 	for dir := cwd; ; dir = filepath.Dir(dir) {
@@ -63,7 +109,7 @@ func loadConfigLayers(cwd, home string) ([]configLayer, error) {
 		if cfg, ok, err := readConfig(projectFile); err != nil {
 			return nil, err
 		} else if ok {
-			layers = append(layers, configLayer{config: cfg, base: dir, rank: 2})
+			layers = append(layers, configLayer{config: cfg, base: dir, path: projectFile, rank: 2})
 			break
 		}
 		if dir == home || filepath.Dir(dir) == dir {
@@ -85,7 +131,7 @@ func loadExplicitConfig(value, cwd, home string) ([]configLayer, string, error) 
 	if !ok {
 		return nil, "", fmt.Errorf("config %s does not exist", path)
 	}
-	return []configLayer{{config: cfg, base: filepath.Dir(path), rank: 2}}, path, nil
+	return []configLayer{{config: cfg, base: filepath.Dir(path), path: path, rank: 2}}, path, nil
 }
 
 func readConfig(path string) (Config, bool, error) {

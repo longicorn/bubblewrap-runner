@@ -67,9 +67,13 @@ func buildPlan(opts options, command []string) (plan, error) {
 		if path == "/" || path == home {
 			return fmt.Errorf("refusing to mount protected path %s", path)
 		}
-		resolved := path
+		statPath := path
+		if mode == "deny" {
+			statPath = mountedSourcePath(path, selected)
+		}
+		resolved := statPath
 		target := path
-		info, statErr := os.Stat(path)
+		info, statErr := os.Stat(statPath)
 		if statErr != nil {
 			if os.IsNotExist(statErr) && !requireExisting && mode == "deny" {
 				return nil
@@ -93,7 +97,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 					break
 				}
 			}
-		} else if mode == "deny" {
+		} else if mode == "deny" && statPath == path {
 			if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
 				for _, parent := range selected {
 					if (parent.mode == "ro" || parent.mode == "rw") && parent.path != path && within(parent.path, path) {
@@ -197,12 +201,15 @@ func buildPlan(opts options, command []string) (plan, error) {
 			return plan{}, err
 		}
 	}
-	if sandboxDir, found, err := findProjectSandboxDirForOptions(cwd, home, opts); err != nil {
+	if sandboxDir, found, err := findSandboxDir(cwd, home, opts, layers); err != nil {
 		return plan{}, err
 	} else if found {
 		resolvedDir, err := filepath.EvalSymlinks(sandboxDir)
 		if err != nil {
 			return plan{}, fmt.Errorf("resolve project sandbox directory %s: %w", sandboxDir, err)
+		}
+		if explicitConfigPath != "" && within(resolvedDir, explicitConfigPath) {
+			return plan{}, fmt.Errorf("sandbox directory %s must not contain the selected configuration file %s", sandboxDir, explicitConfigPath)
 		}
 		entries, err := os.ReadDir(resolvedDir)
 		if err != nil {
@@ -239,9 +246,19 @@ func buildPlan(opts options, command []string) (plan, error) {
 				return plan{}, err
 			}
 		}
-		for _, path := range layer.config.Mounts.RW {
-			if err := add(path, layer.base, "rw", layer.rank, false); err != nil {
-				return plan{}, err
+		for _, rule := range layer.config.Mounts.RW {
+			if rule.Source == "" && rule.Target == "" {
+				if err := add(rule.Path, layer.base, "rw", layer.rank, false); err != nil {
+					return plan{}, err
+				}
+			} else {
+				binding, err := resolveRWBinding(rule, cwd, home, selected, layers, layer.rank)
+				if err != nil {
+					return plan{}, err
+				}
+				if old, ok := selected[binding.path]; !ok || binding.rank >= old.rank {
+					selected[binding.path] = binding
+				}
 			}
 		}
 		for _, path := range layer.config.Mounts.Deny {
@@ -302,11 +319,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 		for parent := filepath.Dir(item.path); within(anchor, parent) && parent != anchor; parent = filepath.Dir(parent) {
 			dirs[parent] = struct{}{}
 		}
-		statPath := item.path
-		if item.mode == "ro" || item.mode == "rw" {
-			statPath = item.source
-		}
-		info, statErr := os.Stat(statPath)
+		info, statErr := os.Stat(item.source)
 		if item.mode == "deny" {
 			if statErr == nil && info.IsDir() {
 				dirs[item.path] = struct{}{}
@@ -347,7 +360,7 @@ func buildPlan(opts options, command []string) (plan, error) {
 		case "rw":
 			args = append(args, "--bind", item.source, item.path)
 		case "deny":
-			info, err := os.Stat(item.path)
+			info, err := os.Stat(item.source)
 			if err != nil {
 				continue
 			}
@@ -390,7 +403,106 @@ func buildPlan(opts options, command []string) (plan, error) {
 	return plan{args: args, env: env, fileCount: len(orderedFiles)}, nil
 }
 
-func findProjectSandboxDirForOptions(cwd, home string, opts options) (string, bool, error) {
+// mountedSourcePath inspects a destination through its most specific selected
+// bind, rather than through an unrelated or absent host path at that location.
+func mountedSourcePath(path string, mounts map[string]mount) string {
+	var parent mount
+	for _, candidate := range mounts {
+		if (candidate.mode == "ro" || candidate.mode == "rw") && within(candidate.path, path) && len(candidate.path) > len(parent.path) {
+			parent = candidate
+		}
+	}
+	if parent.path == "" {
+		return path
+	}
+	relative, _ := filepath.Rel(parent.path, path)
+	return filepath.Join(parent.source, relative)
+}
+
+func resolveRWBinding(rule RWMount, cwd, home string, mounts map[string]mount, layers []configLayer, rank int) (mount, error) {
+	if strings.TrimSpace(rule.Source) == "" || strings.TrimSpace(rule.Target) == "" {
+		return mount{}, fmt.Errorf("mounts.rw binding requires non-empty source and target")
+	}
+	source, err := expandPath(rule.Source, cwd, home)
+	if err != nil {
+		return mount{}, err
+	}
+	source, err = filepath.EvalSymlinks(source)
+	if err != nil {
+		return mount{}, fmt.Errorf("resolve binding source %s: %w", rule.Source, err)
+	}
+	target, err := expandPath(rule.Target, cwd, home)
+	if err != nil {
+		return mount{}, err
+	}
+	if source == "/" || source == home || target == "/" || target == home {
+		return mount{}, fmt.Errorf("refusing to bind protected root or home path")
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return mount{}, fmt.Errorf("inspect binding source %s: %w", source, err)
+	}
+	// Protect policy files from becoming writable through a different name.
+	policies := []string{filepath.Join(cwd, ".bwrun.json"), filepath.Join(cwd, ".bwrun.local.json")}
+	for _, layer := range layers {
+		if layer.path != "" {
+			policies = append(policies, layer.path)
+		}
+	}
+	for _, path := range policies {
+		resolved, err := filepath.EvalSymlinks(path)
+		if os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return mount{}, fmt.Errorf("resolve policy file %s: %w", path, err)
+		}
+		if within(source, resolved) {
+			return mount{}, fmt.Errorf("binding source %s contains protected policy file %s", source, path)
+		}
+	}
+	visibleTarget := mountedSourcePath(target, mounts)
+	if targetInfo, err := os.Lstat(visibleTarget); err == nil {
+		if targetInfo.Mode()&os.ModeSymlink != 0 {
+			return mount{}, fmt.Errorf("binding target %s must not be a symbolic link", target)
+		}
+		if targetInfo.IsDir() != info.IsDir() {
+			return mount{}, fmt.Errorf("binding source and target types differ: %s -> %s", source, target)
+		}
+	} else if !os.IsNotExist(err) {
+		return mount{}, fmt.Errorf("inspect binding target %s: %w", target, err)
+	}
+	return mount{path: target, source: source, mode: "rw", rank: rank}, nil
+}
+
+// Explicit directory selection replaces automatic project sandbox discovery.
+// Mount rules still override the selected directory's home entries as before.
+func findSandboxDir(cwd, home string, opts options, layers []configLayer) (string, bool, error) {
+	value, rank := "", 0
+	for _, layer := range layers {
+		if layer.config.SandboxDir != "" && layer.rank >= rank {
+			value, rank = layer.config.SandboxDir, layer.rank
+		}
+	}
+	if opts.sandboxDir != "" {
+		value = opts.sandboxDir
+	}
+	if value != "" {
+		if strings.TrimSpace(value) == "" {
+			return "", false, fmt.Errorf("sandbox directory must not be empty")
+		}
+		path, err := expandPath(value, cwd, home)
+		if err != nil {
+			return "", false, err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", false, fmt.Errorf("inspect sandbox directory %s: %w", path, err)
+		}
+		if !info.IsDir() {
+			return "", false, fmt.Errorf("sandbox path %s is not a directory", path)
+		}
+		return path, true, nil
+	}
 	if opts.configPath != "" {
 		return "", false, nil
 	}

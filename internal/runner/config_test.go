@@ -1,11 +1,38 @@
 package runner
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRWMountJSON(t *testing.T) {
+	var cfg Config
+	input := `{"mounts":{"rw":["~/.copilot",{"source":".bwrun/sandbox/.copilot/session-state","target":"~/.copilot/session-state"}]}}`
+	if err := json.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Mounts.RW) != 2 || cfg.Mounts.RW[0].Path != "~/.copilot" || cfg.Mounts.RW[1].Source != ".bwrun/sandbox/.copilot/session-state" || cfg.Mounts.RW[1].Target != "~/.copilot/session-state" {
+		t.Fatalf("mixed rw entries = %#v", cfg.Mounts.RW)
+	}
+	data, err := json.Marshal(cfg.Mounts.RW)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `["~/.copilot",{"source":".bwrun/sandbox/.copilot/session-state","target":"~/.copilot/session-state"}]` {
+		t.Fatalf("rw round trip = %s", data)
+	}
+	for _, input := range []string{`null`, `true`, `[]`, `{}`, `{"source":"a"}`, `{"target":"b"}`, `{"source":" ","target":"b"}`, `{"source":1,"target":"b"}`, `{"source":"a","target":"b","typo":"c"}`} {
+		t.Run(input, func(t *testing.T) {
+			var rule RWMount
+			if err := json.Unmarshal([]byte(input), &rule); err == nil {
+				t.Fatalf("invalid binding accepted: %s", input)
+			}
+		})
+	}
+}
 
 func TestExpandPath(t *testing.T) {
 	home := filepath.Join(string(filepath.Separator), "home", "tester")
@@ -33,14 +60,14 @@ func TestReadConfig(t *testing.T) {
 	if _, ok, err := readConfig(path); err != nil || ok {
 		t.Fatalf("missing config: ok=%v err=%v", ok, err)
 	}
-	if err := os.WriteFile(path, []byte(`{"version":"1","network":"deny","mounts":{"ro":["/tmp"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":"1","network":"deny","sandbox-dir":"sandbox","mounts":{"ro":["/tmp"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, ok, err := readConfig(path)
-	if err != nil || !ok || cfg.Network != "deny" || len(cfg.Mounts.RO) != 1 {
+	if err != nil || !ok || cfg.Network != "deny" || cfg.SandboxDir != "sandbox" || len(cfg.Mounts.RO) != 1 {
 		t.Fatalf("read config = %#v, %v, %v", cfg, ok, err)
 	}
-	for _, body := range []string{`{`, `{"network":"sometimes"}`} {
+	for _, body := range []string{`{`, `{"network":"sometimes"}`, `{"sandbox-dir":true}`} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
