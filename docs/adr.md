@@ -1,20 +1,25 @@
 # Architecture Decision Records (ADR) - bwrun (bubblewrap-runner)
 
-This document records the architectural and design decisions made for `bwrun` (bubblewrap-runner).
+This document records the product-wide architectural and design decisions made for `bwrun` (bubblewrap-runner), and indexes domain-specific ADRs under `docs/sandbox/` and `docs/config/`.
 
 ---
 
 ## Table of Contents
 
+### Product & Execution (`docs/adr.md`)
 - [ADR-0001: Bubblewrap (bwrap) as the Core Isolation Engine](#adr-0001-bubblewrap-bwrap-as-the-core-isolation-engine)
 - [ADR-0002: Go (Golang) as the Implementation Language](#adr-0002-go-golang-as-the-implementation-language)
-- [ADR-0003: Three-Tier Semantic Layering Model](#adr-0003-three-tier-semantic-layering-model)
-- [ADR-0004: JSON as the Primary Configuration Format](#adr-0004-json-as-the-primary-configuration-format)
-- [ADR-0005: Runtime Existence-Checking for Dynamic Mount Construction](#adr-0005-runtime-existence-checking-for-dynamic-mount-construction)
 - [ADR-0006: Child Process Execution with Transparent I/O and Signal Forwarding](#adr-0006-child-process-execution-with-transparent-io-and-signal-forwarding)
 - [ADR-0007: Default Host Network Passthrough with Opt-Out Flag](#adr-0007-default-host-network-passthrough-with-opt-out-flag)
-- [ADR-0008: Default Environment Variable Pass-Through with Explicit Deny/Override](#adr-0008-default-environment-variable-pass-through-with-explicit-denyoverride)
-- [ADR-0009: PID/IPC Namespace Isolation and Persistence Hardening](#adr-0009-pidipc-namespace-isolation-and-persistence-hardening)
+
+### Sandbox & Isolation ([`docs/sandbox/adr.md`](sandbox/adr.md))
+- [ADR-0003: Three-Tier Semantic Layering Model](sandbox/adr.md#adr-0003-three-tier-semantic-layering-model)
+- [ADR-0005: Runtime Existence-Checking for Dynamic Mount Construction](sandbox/adr.md#adr-0005-runtime-existence-checking-for-dynamic-mount-construction)
+- [ADR-0009: PID/IPC Namespace Isolation and Persistence Hardening](sandbox/adr.md#adr-0009-pidipc-namespace-isolation-and-persistence-hardening)
+
+### Configuration & Environment ([`docs/config/adr.md`](config/adr.md))
+- [ADR-0004: JSON as the Primary Configuration Format](config/adr.md#adr-0004-json-as-the-primary-configuration-format)
+- [ADR-0008: Default Environment Variable Pass-Through with Explicit Deny/Override](config/adr.md#adr-0008-default-environment-variable-pass-through-with-explicit-denyoverride)
 
 ---
 
@@ -80,102 +85,6 @@ Implement `bwrun` in Go (Golang).
 
 ---
 
-## ADR-0003: Three-Tier Semantic Layering Model
-
-### Status
-Accepted
-
-### Context
-Manually mapping filesystem paths for bubblewrap is error-prone. A developer often needs to expose:
-1. System binaries and libraries.
-2. Developer tool configurations, runtimes, and skills.
-3. The current project workspace.
-At the same time, sensitive personal files (`~/.ssh`, `~/.gnupg`, `~/.aws`, other projects) must remain strictly hidden.
-
-### Decision
-Adopt a three-tier semantic layering model (Base Layer, Config Layer, User Layer) and Project Sandbox Overlays.
-* **Base Layer:** Host root (`/`) is visible read-only; `/dev` and `/proc` are instantiated by bwrap; `/tmp` is private.
-* **Config Layer:** Top-level dotfiles/dotdirectories are mounted read-only by default; standard XDG paths and package caches are writable; known credentials and persistence vectors are denied.
-* **User Layer:** The host `$HOME` is masked at its original path; the Current Working Directory (CWD) is mounted read-write (`--bind`), with runner configurations protected as read-only.
-  * **Workspace Boundary Validation:** Starting in `/`, `$HOME`, or any ancestor directory containing `$HOME` is unconditionally rejected. To prevent accidentally exposing broad parent directories (such as `~/src`) as a writable workspace, `bwrun` verifies that the starting CWD is inside a project boundary by searching upward from CWD (stopping before `$HOME` and `/`) for a configured project marker (default `[".git"]`, configurable via `"workspace-markers"`, plus `.bwrun.json`). When a marker is found in CWD or an ancestor below `$HOME`, only the starting CWD is mounted read-write. Running outside a marked project requires passing `--allow-cwd` explicitly.
-* **Project Sandbox Overlays:** Project-specific isolated credentials under `.bwrun/sandbox/` automatically overlay sensitive home paths (e.g. `~/.ssh`).
-* **Explicit Home Overlay Selection:** `--sandbox-dir <dir>` and the top-level `"sandbox-dir"` configuration key select the overlay directory explicitly, replacing automatic discovery. CLI selection overrides configuration selection. Relative paths for either selection are resolved from the starting CWD, so a shared tool profile can reference the current workspace’s overlay. This allows a tool profile chosen with `--config` to use isolated home files without implicitly loading the surrounding project's settings or credentials. Without explicit directory selection, `--config` continues to disable automatic overlay discovery.
-* **Explicit Nested Writable Bindings:** `mounts.rw` accepts source/target objects as well as existing string paths. Parent host mounts remain shared while selected children use persistent project-local storage. For example, `~/.copilot` can retain host configuration while `session-state` is bound from `.bwrun/sandbox/.copilot/session-state`. Relative object paths use the starting CWD so profiles outside a project can isolate its state. Normal destination precedence and parent-before-child ordering are retained; runner policy files cannot be exposed through writable source aliases.
-
-For complete, authoritative specifications of the layering rules, catalog entries, and precedence, see `docs/prd.md` Section 3.
-
-### Consequences
-#### Positive
-* Writable access is confined strictly to the project working directory, auto-writable XDG directories/caches, project sandbox entries, and explicit rules.
-* Automatically exposed dotfiles remain readable while being protected against tampering or deletion.
-* Known credential and persistence paths remain hidden; unrelated home repositories and personal files remain invisible.
-* Prevents cross-project source code leakage and sensitive credential compromise.
-
-#### Negative
-* Tools requiring write access to legacy non-cache paths under `$HOME` require explicit configuration.
-
----
-
-## ADR-0004: JSON as the Primary Configuration Format
-
-### Status
-Accepted
-
-### Context
-`bwrun` requires declarative configuration at both the user level (`~/.config/bwrun/config.json`) and the project level (`<project-root>/.bwrun.json`).
-While YAML is often used for developer configs, parsing YAML in Go requires third-party dependencies (such as `gopkg.in/yaml.v3`). JSON is supported directly in the Go standard library (`encoding/json`), produces zero external dependency footprint, and is readily validated with JSON Schema.
-
-### Decision
-Adopt standard JSON as the official configuration format for both `.bwrun.json` and user-level configs.
-Configuration resolution follows a strict hierarchy (highest to lowest):
-1. Command Line Flags (`--rw`, `--ro`, `--deny`, etc.)
-2. Project Configuration (`<cwd>/.bwrun.json`)
-3. User Global Configuration (`~/.config/bwrun/config.json`)
-4. Built-in Semantic Rules & Catalog Defaults
-
-For complete details on configuration schema, flag precedence, and path resolution rules, see `docs/prd.md` Section 4.
-
-### Consequences
-#### Positive
-- Zero external package dependencies for configuration parsing in Go.
-- Easy integration with IDEs, JSON Schema validation, and automated tooling.
-- Unambiguous parsing semantics.
-
-#### Negative
-- Standard JSON does not natively support inline comments. (If needed in future phases, a comment-tolerant parser or alternate format support can be evaluated).
-
----
-
-## ADR-0005: Runtime Existence-Checking for Dynamic Mount Construction
-
-### Status
-Accepted
-
-### Context
-`bwrap` fails with an immediate fatal error if an argument specifies a nonexistent source path (e.g. `--ro-bind ~/.cargo ~/.cargo` when Rust is not installed).
-The built-in catalog will contain a predefined list of common tools and dotfiles (Node, Rust, Go, Python, AI agents like Goose/Gemini). However:
-1. Individual developer environments differ significantly, and only a subset of these paths exist on any given machine.
-2. Hardcoding catalog paths tightly into Go control flow creates maintenance debt as the ecosystem of developer tools and AI agents evolves.
-
-### Decision
-`bwrun` will evaluate all candidate mount paths at runtime while decoupling catalog knowledge from path resolution:
-1. **Declarative Catalog Representation:** Structure catalog entries as declarative data (e.g., embedded JSON or declarative structs), keeping semantic rules cleanly separated from bwrap invocation logic.
-2. **Runtime Existence Evaluation:** Expand paths (resolving `~` and environment variables) and check existence on the host filesystem (`os.Stat` / `os.Lstat`). Dynamically append only verified, existing paths as `--ro-bind` or `--bind` arguments to the `bwrap` command. Nonexistent paths are skipped silently.
-3. **Future Extensibility:** Design catalog interfaces to allow loading external catalog definitions (e.g., from `~/.config/bwrun/catalog.d/` or remote data updates) and user-defined catalog overrides without requiring binary recompilation.
-4. **Diagnostic Guidance (`bwrun doctor`):** Rather than performing non-deterministic runtime heuristics or LLM evaluation for unrecognized dotfiles/directories in `$HOME`, provide a deterministic diagnostic command (`bwrun doctor`). It reports uncataloged dotpaths and guides users to configure them via `catalog.d/` or configuration files if specific permissions (e.g., write access for caches or explicit denials for secrets) are required.
-
-### Consequences
-#### Positive
-- Prevents `bwrap` failure caused by missing catalog entries.
-- Out-of-the-box functionality across diverse machine setups without requiring user intervention.
-- Clean separation between catalog knowledge (declarative listing) and execution planning (dynamic path resolution).
-- Facilitates external catalog data maintenance and user-defined catalog extensions as new tools emerge.
-
-#### Negative
-- Minor filesystem stat overhead at startup (negligible for dozens of paths in local filesystem cache).
-
----
-
 ## ADR-0006: Child Process Execution with Transparent I/O and Signal Forwarding
 
 ### Status
@@ -231,72 +140,3 @@ Enable host network access by default (sharing the host network namespace). Prov
 #### Negative
 - An agent could theoretically send data over the network if it gained access to sensitive data (mitigated by strict User Layer filesystem denial).
 - Network filtering/proxying is deferred to Phase 3.
-
----
-
-## ADR-0008: Default Environment Variable Pass-Through with Explicit Deny/Override
-
-### Status
-Accepted
-
-### Context
-Modern AI agents, developer tools, and language runtimes rely extensively on host environment variables for operation (e.g., LLM API keys such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, runtime path configurations like `NVM_DIR`, `GOPATH`, proxy settings, and locale).
-Filtering environment variables via a strict whitelist by default introduces high configuration friction, breaking the "zero-configuration" developer experience of running `bwrun <command>` seamlessly out of the box.
-
-### Decision
-Inherit host environment variables by default while providing granular deny and override controls:
-1. **Default Pass-through:** Set host environment variables are inherited automatically.
-2. **Explicit Deny (`env.deny`):** Filter out sensitive environment variables (cloud credentials, deployment tokens, etc.).
-3. **Explicit Pass (`env.pass`):** Explicitly retain specific environment variables.
-4. **Explicit Override (`env.set`):** Set or override environment variables.
-5. **Mandatory Variables:** `bwrun` guarantees essential sandbox variables (e.g., `HOME` and `BWRUN_SANDBOX=1`).
-
-For detailed precedence and resolution behavior, see `docs/prd.md` Section 4.1. Note: To further support tool-scoped profiles and prevent secret exfiltration, a strict non-inheriting clean environment mode (`--clean-env`) and external environment files (`env_file`) are planned for Phase 2.
-
-### Consequences
-#### Positive
-- Zero friction for AI agents and developer tools requiring pre-configured API keys and environment settings.
-- Aligns with the default host network passthrough philosophy (ADR-0007) of prioritizing developer productivity out of the box.
-- Developers maintain control to hide sensitive secrets when needed via `env.deny`.
-
-#### Negative
-- Host secrets stored in environment variables (e.g., accidental export of tokens in a shell session) are visible to the sandboxed process unless explicitly listed in `env.deny`.
-
-#### Future Considerations
-- **External Environment Files (`env_file`):** Support referencing dedicated external environment files (e.g. `.env`) rather than inlining values directly in JSON configurations.
-- **External Secret Management Integration:** Rather than embedding complex encryption/decryption logic into `bwrun` itself, keep the core focused on isolation and recommend standard secret managers or encryption tools (such as `sops`, `vault`, or `direnv`) to populate the environment prior to `bwrun` execution.
-
----
-
-## ADR-0009: PID/IPC Namespace Isolation and Persistence Hardening
-
-### Status
-Accepted
-
-### Context
-When running untrusted developer tools or autonomous AI agents, sandboxed processes can potentially attempt to:
-1. **Inspect and tamper with host processes:** Without namespace isolation, processes in the sandbox can view host processes via `/proc`, attempt inter-process signaling (sending signals like `SIGKILL` or `SIGSTOP`), or interact with host IPC primitives (SysV shared memory, POSIX message queues, semaphores).
-2. **Subvert runner configuration (Privilege Escalation):** Because the current working directory (CWD) is mounted Read-Write (`--bind`), a malicious or errant agent could overwrite `<cwd>/.bwrun.json` or files under `<cwd>/.bwrun/` to weaken security boundaries (e.g., granting write permissions to sensitive host paths or removing denials) for subsequent runs.
-3. **Establish host persistence (Autostart Backdoors):** Because standard XDG directories under `~/.config` are writable for normal application state, an agent could plant autostart triggers (such as `~/.config/autostart/*.desktop` or `~/.config/systemd/user/*.service`) that execute arbitrary code outside the sandbox upon user login or user session startup.
-
-### Decision
-Implement three defense-in-depth isolation controls:
-1. **Unshared PID & IPC Namespaces by Default:**
-   - Always invoke `bwrap` with `--unshare-pid` and `--unshare-ipc`.
-   - Mount an isolated, private `/proc` inside the sandbox so only processes within the sandbox are visible and controllable.
-2. **Self-Protection of Runner Configurations in CWD:**
-   - After mounting CWD as Read-Write (`--bind`), automatically re-mount any existing `.bwrun.json`, `.bwrun.local.json`, and `.bwrun/` directory as Read-Only (`--ro-bind`).
-   - Reject symbolic links at these policy paths, including project or global configuration files, because protecting a link target does not protect the link itself from replacement.
-3. **Automatic Denial of Autostart / Persistence Paths:**
-   - Include `~/.config/autostart` and `~/.config/systemd/user` in the built-in deny list. Even though parent `~/.config` may be writable, these critical persistence vector paths are masked/denied inside the sandbox.
-
-### Consequences
-#### Positive
-- Prevents cross-process snooping, signal injection, and IPC interference between sandbox processes and host processes.
-- Eliminates the risk of agents modifying their own sandbox policy to escalate privileges on subsequent invocations.
-- Closes the primary vector for persistent malware/backdoor installation on modern Linux desktop and systemd user environments.
-- Zero configuration required from the user to benefit from these protections.
-
-#### Negative
-- Sandboxed processes cannot intentionally configure user autostart services or systemd user units without explicit configuration override.
-- Configuration files (`.bwrun.json`) cannot be modified directly from inside the sandbox; modifications must occur on the host.
