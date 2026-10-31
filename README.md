@@ -32,6 +32,7 @@ bwrun init
 bwrun bash
 bwrun --ro ~/docs/shared -- bash
 bwrun --dry-run -- bash
+bwrun --allow-cwd -- bash
 bwrun --config ~/.config/bwrun/profiles/agent.json -- bash
 ```
 
@@ -46,6 +47,10 @@ fi
 ```
 
 `bwrun init` creates a starter `.bwrun.json` in the current directory and leaves an existing file untouched. Project settings go in `.bwrun.json`; user settings go in `~/.config/bwrun/config.json`.
+
+Before mounting the starting directory read-write, `bwrun` searches it and its ancestors for a project marker. By default, `.git` (a file or directory) and `.bwrun.json` are markers. The search stops before `$HOME` and `/`; a marker in `$HOME` does not authorize its descendants. Only the starting directory is mounted as the workspace, even when the marker is in an ancestor.
+
+Set `workspace-markers` to a non-empty array of single names without path separators or `..` to replace the default `.git` marker. A higher configuration layer replaces the lower layer's list; `.bwrun.json` is always recognized. Outside a marked project, change to a project directory, run `bwrun init`, or use `--allow-cwd` to explicitly permit the starting directory. Starting in `/`, `$HOME`, or an ancestor of `$HOME` is always rejected, including with `--allow-cwd`.
 
 Project-local home files can be supplied without adding mount entries: put them under `.bwrun/sandbox/` using their home-relative paths. For example, `.bwrun/sandbox/.ssh` is mounted read-write at `~/.ssh`; any existing entries directly under `.bwrun/sandbox/` are mounted the same way automatically. Explicit project or command-line mount rules can override these defaults.
 
@@ -93,13 +98,17 @@ The host `.copilot` remains available, but `session-state` is replaced by the pr
 
 String entries keep their existing meaning and path bases. In source/target objects, both relative paths are resolved from the starting directory, even when the configuration file is elsewhere. `~` and host environment variables are expanded. The source must already exist; the target may be absent. Parents are mounted before children, regardless of array order. Layer precedence and explicit CLI rules still apply to the same destination. A source cannot expose a runner policy file through a writable alias, and an existing target must have the same file/directory type as the source and cannot be a symbolic link.
 
+The following example illustrates the configuration fields. See [`.bwrun.json.sample`](.bwrun.json.sample) for the complete sample; paths such as `sandbox-dir` and binding sources must exist before use.
+
 ```json
 {
   "version": "1",
   "network": "allow",
+  "workspace-markers": [".git"],
+  "sandbox-dir": ".bwrun/sandbox",
   "mounts": {
     "ro": ["~/.config/my-tool"],
-    "rw": ["~/.cache/my-tool"],
+    "rw": ["~/.cache/my-tool", {"source": ".bwrun/sandbox/.copilot/session-state", "target": "~/.copilot/session-state"}],
     "deny": ["~/.aws"]
   },
   "env": {

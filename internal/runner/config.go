@@ -65,12 +65,13 @@ type EnvConfig struct {
 }
 
 type Config struct {
-	Schema     string      `json:"$schema,omitempty"`
-	Version    string      `json:"version"`
-	Network    string      `json:"network"`
-	SandboxDir string      `json:"sandbox-dir,omitempty"`
-	Mounts     MountConfig `json:"mounts"`
-	Env        EnvConfig   `json:"env"`
+	Schema           string      `json:"$schema,omitempty"`
+	Version          string      `json:"version"`
+	Network          string      `json:"network"`
+	SandboxDir       string      `json:"sandbox-dir,omitempty"`
+	WorkspaceMarkers []string    `json:"workspace-markers,omitempty"`
+	Mounts           MountConfig `json:"mounts"`
+	Env              EnvConfig   `json:"env"`
 }
 
 type configLayer struct {
@@ -158,6 +159,20 @@ func readConfig(path string) (Config, bool, error) {
 	}
 	if cfg.Network != "" && cfg.Network != "allow" && cfg.Network != "deny" {
 		return Config{}, false, fmt.Errorf("config %s: network must be \"allow\" or \"deny\"", path)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Config{}, false, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	if _, present := fields["workspace-markers"]; present {
+		if len(cfg.WorkspaceMarkers) == 0 {
+			return Config{}, false, fmt.Errorf("config %s: workspace-markers must be a non-empty array", path)
+		}
+		for _, marker := range cfg.WorkspaceMarkers {
+			if marker == "" || marker == "." || strings.Contains(marker, "..") || strings.ContainsAny(marker, `/\`) {
+				return Config{}, false, fmt.Errorf("config %s: invalid workspace marker %q", path, marker)
+			}
+		}
 	}
 	return cfg, true, nil
 }

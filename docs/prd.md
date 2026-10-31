@@ -79,7 +79,11 @@ The core concept of `bwrun` is partitioning the host filesystem into distinct fu
 * **Scope:** Personal files under `$HOME` (Documents, Downloads, unrelated code repositories, sensitive credentials like `~/.ssh`, `~/.gnupg`, etc.).
 * **Policy:**
   * **Default:** Mask the host home directory while preserving its path. Existing top-level dotfiles, XDG directories, and known tool caches are then exposed according to the Config Layer rules in Section 3.2; other home contents remain hidden unless a workspace, project sandbox entry, or explicit rule exposes them.
-* **Current Working Directory (CWD):** Automatically mounted as Read-Write (`--bind`) so the command can perform its intended modifications within the project root.
+* **Current Working Directory (CWD) & Workspace Boundary Validation:** Automatically mounted as Read-Write (`--bind`) so the command can perform its intended modifications within the workspace, subject to strict boundary guards that prevent accidental exposure of `$HOME` or broad parent directories (such as `~/src`):
+  * **Protected Non-Workspace Paths:** Starting `bwrun` in `$HOME`, `/`, or any ancestor directory containing `$HOME` (such as `/home`) is unconditionally rejected, even when `--allow-cwd` is passed.
+  * **Upward Project Marker Discovery:** Before mounting CWD Read-Write by default, `bwrun` traverses upward from the starting CWD toward its parent directories—stopping before `$HOME` and `/` without inspecting `$HOME` itself—to verify that CWD lies within a project boundary. By default, `bwrun` looks for `.git` (either a directory or a file, supporting git worktrees and submodules); `.bwrun.json` is also always recognized as a valid project boundary. Custom marker names can be configured via the top-level `"workspace-markers"` configuration key (e.g., `[".git", ".hg", ".jj"]`).
+  * **Scoped CWD Mount:** When a marker is found in CWD or an allowed ancestor directory, only the starting CWD itself (not the ancestor directory where the marker was found) is mounted Read-Write (`--bind`).
+  * **Explicit Non-Project Override (`--allow-cwd`):** If no project marker is found before reaching `$HOME` or `/`, `bwrun` refuses to start by default and instructs the user to change to a project directory, run `bwrun init`, or pass `--allow-cwd`. Passing `--allow-cwd` explicitly authorizes mounting the current directory Read-Write when working outside a tracked project (while still rejecting `/`, `$HOME`, and ancestors of `$HOME`).
   * **Runner Self-Protection:** Any configuration files or directories controlling sandbox behavior inside CWD (specifically `.bwrun.json`, `.bwrun.local.json`, and the `.bwrun/` directory) are automatically re-mounted as Read-Only (`--ro-bind`) over the writable CWD. This prevents sandboxed processes from tampering with security policies for subsequent runs.
 * **Explicit Whitelists:** Paths explicitly permitted in configuration can be exposed as Read-Only or Read-Write.
 * A shell started with `bwrun bash` has the same visible system paths as a host shell. Under `~/`, it sees the writable starting directory, the Config Layer's automatic mounts, project sandbox entries, and paths explicitly allowed by policy; other host home contents remain hidden.
@@ -103,21 +107,31 @@ Configuration is resolved in the following priority order (highest to lowest):
 
 When `--config <file>` is given, only that file is used as the configuration layer. The global and nearest-project configuration files are not discovered, and nearest-project `.bwrun/sandbox/` entries are not automatically injected. Home overlays remain available through an explicit `--sandbox-dir` or `"sandbox-dir"` selection, or specific source/target bindings in `mounts.rw`. Built-in semantic rules and CLI flags still apply. The file must exist and must not be a symbolic link. Relative `--config` paths are resolved from the starting directory, while string mount paths inside the file are resolved from the file's directory. Relative `sandbox-dir` paths and source/target object paths are resolved from the starting CWD. The selected file is hidden inside the sandbox to prevent changes to the policy for later runs.
 
-For mount rules, settings from a higher layer replace lower-layer rules for the same destination; nested paths are applied from parent to child. String paths in project configuration are relative to the directory containing `.bwrun.json`, global paths are relative to the user's home, and CLI paths are relative to the starting directory. Source/target object paths are always relative to the starting directory. `HOME` is always set to the sandbox home path, and `BWRUN_SANDBOX=1` is always set so shells and scripts can identify sandbox execution. Existing host environment variables are passed through by default; `env.deny` filters inherited host variables, then `env.set` sets or overrides values. If a name appears in both, the explicit `env.set` value is used, including an empty string. Denials from any configuration layer apply only to host inheritance; explicit set values follow configuration-layer precedence. `env.pass` can explicitly request a variable that is otherwise absent from the host environment when available.
+For mount rules, settings from a higher layer replace lower-layer rules for the same destination; nested paths are applied from parent to child. String paths in project configuration are relative to the directory containing `.bwrun.json`, global paths are relative to the user's home, and CLI paths are relative to the starting directory. Source/target object paths are always relative to the starting directory. The optional top-level `"workspace-markers"` key accepts a non-empty array of single entry names (base names without path separators or `..`, defaulting to `[".git"]`) used during upward project boundary discovery; a higher configuration layer's `"workspace-markers"` list replaces lower layers, while `.bwrun.json` remains recognized as a project boundary. `HOME` is always set to the sandbox home path, and `BWRUN_SANDBOX=1` is always set so shells and scripts can identify sandbox execution. Existing host environment variables are passed through by default; `env.deny` filters inherited host variables, then `env.set` sets or overrides values. If a name appears in both, the explicit `env.set` value is used, including an empty string. Denials from any configuration layer apply only to host inheritance; explicit set values follow configuration-layer precedence. `env.pass` can explicitly request a variable that is otherwise absent from the host environment when available.
 
-### 4.2 Configuration Schema (JSON Example)
+### 4.2 Configuration Schema & Sample Reference (`.bwrun.json.sample`)
+A comprehensive sample file, `.bwrun.json.sample`, is maintained in the repository root to illustrate all supported top-level and nested configuration fields (while `bwrun init` generates a minimal starter `.bwrun.json` with empty rules):
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "version": "1",
   "network": "allow",
+  "workspace-markers": [
+    ".git"
+  ],
+  "sandbox-dir": ".bwrun/sandbox",
   "mounts": {
     "ro": [
       "~/.config/goose/recipes",
       "~/.local/share/agent-skills"
     ],
     "rw": [
-      "~/.cache/my-tool"
+      "~/.cache/my-tool",
+      {
+        "source": ".bwrun/sandbox/.copilot/session-state",
+        "target": "~/.copilot/session-state"
+      }
     ],
     "deny": [
       "~/.aws",
@@ -171,6 +185,8 @@ Use `--` before the command if it takes option flags (starting with `-`), ensuri
 
 `bwrun init` creates a starter `.bwrun.json` in the current directory and never overwrites an existing file. The template starts with empty path and environment rules; developers add only the permissions their project needs.
 
+When starting outside a directory tree marked by `.git` (or a configured `"workspace-markers"` entry) or `.bwrun.json`, pass `--allow-cwd` to explicitly permit mounting the starting directory Read-Write (`/` and `$HOME` or its ancestors remain forbidden).
+
 #### Examples:
 ```bash
 # Run Goose agent safely in the current project
@@ -183,6 +199,9 @@ bwrun --ro ~/docs/shared -- gemini
 
 # Run interactive bash inside the sandboxed environment
 bwrun bash
+
+# Explicitly allow mounting CWD when running in a non-git scratch directory
+bwrun --allow-cwd -- bash
 
 # Dry-run to inspect the generated bwrap command line
 bwrun --dry-run -- goose

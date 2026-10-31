@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1",
+  "network": "allow",
+  "workspace-markers": [".git"],
+  "sandbox-dir": ".bwrun/sandbox",
+  "mounts": {
+    "ro": ["~/.config/goose/recipes", "~/.local/share/agent-skills"],
+    "rw": [
+      "~/.cache/my-tool",
+      {
+        "source": ".bwrun/sandbox/.copilot/session-state",
+        "target": "~/.copilot/session-state"
+      }
+    ],
+    "deny": ["~/.aws", "~/.config/gcloud"]
+  },
+  "env": {
+    "pass": [],
+    "deny": ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"],
+    "set": {"CI": "true"}
+  }
+}
