@@ -4,6 +4,12 @@
 
 ## Practical Security Model & Goals
 
+`bwrun` is a personal project that prioritizes a smooth, low-configuration sandbox for everyday development. Its default boundaries are intended to reduce accidental access to unrelated projects and sensitive files while keeping common development tools usable.
+
+Like other OS-level sandboxes and containers, `bwrun` depends on the host kernel, its configuration, and the resources exposed to the sandbox. It does not guarantee protection against a determined attacker and is not a substitute for stronger isolation when running untrusted code.
+
+If you need more restrictive filesystem and network controls, consider [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime). It takes a different approach, with explicit policies for filesystem and network access. Evaluate its configuration and limitations against your own security requirements.
+
 `bwrun` is designed for daily developer workflows rather than theoretical hypervisor-level isolation:
 * **Host System Root is Visible Read-Only:** System paths outside `$HOME` (`/usr`, `/bin`, `/lib`, `/etc`) remain visible read-only at their normal paths. Installed compilers, runtimes, and system utilities work transparently without container image builds.
 * **Host Home is Masked:** The developer's `$HOME` is masked. Only the current working directory (CWD) and allowed XDG/cache paths are writable; other home contents remain hidden or read-only.
