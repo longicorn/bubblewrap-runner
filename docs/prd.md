@@ -109,7 +109,9 @@ When `--config <file>` is given, only that file is used as the configuration lay
 
 For mount rules, settings from a higher layer replace lower-layer rules for the same destination; nested paths are applied from parent to child. String paths in project configuration are relative to the directory containing `.bwrun.json`, global paths are relative to the user's home, and CLI paths are relative to the starting directory. Source/target object paths are always relative to the starting directory. The optional top-level `"workspace-markers"` key accepts a non-empty array of single entry names (base names without path separators or `..`, defaulting to `[".git"]`) used during upward project boundary discovery; a higher configuration layer's `"workspace-markers"` list replaces lower layers, while `.bwrun.json` remains recognized as a project boundary. `HOME` is always set to the sandbox home path, and `BWRUN_SANDBOX=1` is always set so shells and scripts can identify sandbox execution. Existing host environment variables are passed through by default; `env.deny` filters inherited host variables, then `env.set` sets or overrides values. If a name appears in both, the explicit `env.set` value is used, including an empty string. Denials from any configuration layer apply only to host inheritance; explicit set values follow configuration-layer precedence. `env.pass` can explicitly request a variable that is otherwise absent from the host environment when available.
 
-### 4.2 Configuration Schema (JSON Example)
+### 4.2 Configuration Schema & Sample Reference (`.bwrun.json.sample`)
+A comprehensive sample file, `.bwrun.json.sample`, is maintained in the repository root to illustrate all supported top-level and nested configuration fields (while `bwrun init` generates a minimal starter `.bwrun.json` with empty rules):
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -118,13 +120,18 @@ For mount rules, settings from a higher layer replace lower-layer rules for the 
   "workspace-markers": [
     ".git"
   ],
+  "sandbox-dir": ".bwrun/sandbox",
   "mounts": {
     "ro": [
       "~/.config/goose/recipes",
       "~/.local/share/agent-skills"
     ],
     "rw": [
-      "~/.cache/my-tool"
+      "~/.cache/my-tool",
+      {
+        "source": ".bwrun/sandbox/.copilot/session-state",
+        "target": "~/.copilot/session-state"
+      }
     ],
     "deny": [
       "~/.aws",
