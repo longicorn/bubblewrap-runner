@@ -84,7 +84,7 @@ printf 'updated host config' > "$HOME/.copilot/config.json"
 printf 'project history' > "$HOME/.copilot/session-state/project-session"
 if (printf tampered > "$1") 2>/dev/null; then exit 12; fi
 `
-			args := append(append([]string{}, flags...), "--", "/bin/bash", "-c", write, "binding-check", config)
+			args := append(append([]string{"--allow-cwd"}, flags...), "--", "/bin/bash", "-c", write, "binding-check", config)
 			if code, err := Main(args); err != nil || code != 0 {
 				t.Fatalf("session write exited %d: %v", code, err)
 			}
@@ -94,7 +94,7 @@ test "$(cat "$HOME/.copilot/config.json")" = "updated host config" || exit 20
 test "$(cat "$HOME/.copilot/session-state/project-session")" = "project history" || exit 21
 test ! -e "$HOME/.copilot/session-state/host-session" || exit 22
 `
-			args = append(append([]string{}, flags...), "--", "/bin/bash", "-c", read)
+			args = append(append([]string{"--allow-cwd"}, flags...), "--", "/bin/bash", "-c", read)
 			if code, err := Main(args); err != nil || code != 0 {
 				t.Fatalf("second invocation exited %d: %v", code, err)
 			}
@@ -277,7 +277,7 @@ fi
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			args := append(append([]string{}, test.flags...), "--", "/bin/bash", "-c", check, "overlay-check", test.want)
+			args := append(append([]string{"--allow-cwd"}, test.flags...), "--", "/bin/bash", "-c", check, "overlay-check", test.want)
 			code, err := Main(args)
 			if err != nil || code != 0 {
 				t.Fatalf("overlay check exited %d: %v", code, err)

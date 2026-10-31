@@ -52,7 +52,7 @@ func TestBuildPlanRWBinding(t *testing.T) {
 			if err := os.WriteFile(profile, data, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			opts := options{configPath: profile}
+			opts := options{configPath: profile, allowCwd: true}
 			if test.deny {
 				opts.deny = stringList{valid.Target}
 			}
@@ -108,7 +108,7 @@ func TestBuildPlanWorkspaceAndExplicitMounts(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "no-config"))
 	inDirectory(t, cwd)
-	plan, err := buildPlan(options{ro: stringList{shared}, rw: stringList{shared}, deny: stringList{secret}, noNet: true}, []string{"echo", "hello world"})
+	plan, err := buildPlan(options{allowCwd: true, ro: stringList{shared}, rw: stringList{shared}, deny: stringList{secret}, noNet: true}, []string{"echo", "hello world"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestBuildPlanRejectsHomeAsWorkspace(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	inDirectory(t, home)
-	if _, err := buildPlan(options{}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "home directory") {
+	if _, err := buildPlan(options{allowCwd: true}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "home directory") {
 		t.Fatalf("buildPlan error = %v; want home workspace rejection", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestBuildPlanRejectsSymbolicLinkPolicyPath(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "absent"))
 			inDirectory(t, cwd)
-			if _, err := buildPlan(options{}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+			if _, err := buildPlan(options{allowCwd: true}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "symbolic link") {
 				t.Fatalf("buildPlan error = %v; want symbolic link rejection", err)
 			}
 		})
@@ -185,7 +185,7 @@ func TestBuildPlanProjectShadowMount(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "absent"))
 	inDirectory(t, cwd)
-	plan, err := buildPlan(options{}, []string{"true"})
+	plan, err := buildPlan(options{allowCwd: true}, []string{"true"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestBuildPlanExplicitConfigIgnoresDiscoveredConfigsAndProjectSandbox(t *tes
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("BWRUN_SECRET", "secret")
 	inDirectory(t, cwd)
-	sandbox, err := buildPlan(options{configPath: "../profiles/agent.json"}, []string{"true"})
+	sandbox, err := buildPlan(options{allowCwd: true, configPath: "../profiles/agent.json"}, []string{"true"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestBuildPlanRejectsOverlayContainingSelectedConfig(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	inDirectory(t, project)
-	if _, err := buildPlan(options{configPath: profile}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "must not contain the selected configuration file") {
+	if _, err := buildPlan(options{allowCwd: true, configPath: profile}, []string{"true"}); err == nil || !strings.Contains(err.Error(), "must not contain the selected configuration file") {
 		t.Fatalf("buildPlan error = %v; want config alias rejection", err)
 	}
 }
@@ -365,7 +365,7 @@ func TestADR0009Plan(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(previous) })
 
 	policyDir := filepath.Join(cwd, ".bwrun")
-	plan, err := buildPlan(options{rw: stringList{policyDir}}, []string{"true"})
+	plan, err := buildPlan(options{allowCwd: true, rw: stringList{policyDir}}, []string{"true"})
 	if err != nil {
 		t.Fatal(err)
 	}

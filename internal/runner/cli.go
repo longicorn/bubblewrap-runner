@@ -26,6 +26,7 @@ type options struct {
 	sandboxDir   string
 	dryRun       bool
 	noNet        bool
+	allowCwd     bool
 }
 
 func Main(args []string) (int, error) {
@@ -54,6 +55,7 @@ func Main(args []string) (int, error) {
 		return nil
 	})
 	fs.BoolVar(&opts.dryRun, "dry-run", false, "print the generated bubblewrap command")
+	fs.BoolVar(&opts.allowCwd, "allow-cwd", false, "allow the current directory outside a project boundary")
 	fs.BoolVar(&opts.noNet, "no-net", false, "disable network access")
 	if err := fs.Parse(args); err != nil {
 		return 2, err

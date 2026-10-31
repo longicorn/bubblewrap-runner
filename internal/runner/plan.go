@@ -43,8 +43,8 @@ func buildPlan(opts options, command []string) (plan, error) {
 	if err != nil {
 		return plan{}, fmt.Errorf("resolve home directory: %w", err)
 	}
-	if cwd == home {
-		return plan{}, fmt.Errorf("starting in the home directory would expose it as the writable workspace; change to a project directory first")
+	if within(cwd, home) {
+		return plan{}, fmt.Errorf("starting in protected directory %s would expose the home directory as the writable workspace", cwd)
 	}
 	var layers []configLayer
 	var explicitConfigPath string
@@ -54,6 +54,9 @@ func buildPlan(opts options, command []string) (plan, error) {
 		layers, err = loadConfigLayers(cwd, home)
 	}
 	if err != nil {
+		return plan{}, err
+	}
+	if err := validateWorkspace(cwd, home, layers, opts.allowCwd); err != nil {
 		return plan{}, err
 	}
 	selected := map[string]mount{}
@@ -586,3 +589,29 @@ func within(parent, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 func depth(path string) int { return strings.Count(filepath.Clean(path), string(filepath.Separator)) }
+
+func validateWorkspace(cwd, home string, layers []configLayer, allow bool) error {
+	markers := []string{".git"}
+	rank := 0
+	for _, layer := range layers {
+		if layer.config.WorkspaceMarkers != nil && layer.rank >= rank {
+			markers, rank = layer.config.WorkspaceMarkers, layer.rank
+		}
+	}
+	markers = append(append([]string{}, markers...), ".bwrun.json")
+	for dir := cwd; dir != home && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		for _, marker := range markers {
+			_, err := os.Lstat(filepath.Join(dir, marker))
+			if err == nil {
+				return nil
+			}
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("inspect workspace marker: %w", err)
+			}
+		}
+	}
+	if allow {
+		return nil
+	}
+	return fmt.Errorf("no project marker found for %s; change to a project directory, run bwrun init, or pass --allow-cwd", cwd)
+}
